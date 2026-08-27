@@ -1029,11 +1029,11 @@ AI エージェントがプロンプトインジェクション等により悪�
 
 ```mermaid
 flowchart LR
-    Bedrock["Bedrock AgentCore<br>(AI推論・ツール呼出)"] -->|悪意あるURL:<br>http://169.254.169.254/latest/meta-data| NFW["AWS Network Firewall<br>(Suricata IPS ルール)"]
+    Bedrock["Bedrock AgentCore<br>（AI推論・ツール呼出）"] -->|"悪意あるURL（メタデータ宛て）"| NFW["AWS Network Firewall<br>（Suricata IPS ルール）"]
     
     subgraph Suricata_Check ["Suricata SSRF 防御ルール (優先度 100)"]
         Check{"宛先 IP は<br>内部プライベート IP / リンクローカル ?"}
-        Check -->|"YES (10.0.0.0/8, 172.16.0.0/12,<br>192.168.0.0/16, 169.254.169.254)"| DropAction["即座に DROP & ALERT 記録<br>(SSRF攻撃防御)"]
+        Check -->|"YES（プライベート/メタデータ宛て）"| DropAction["即座に DROP & ALERT 記録<br>（SSRF攻撃防御）"]
         Check -->|"NO (正規パブリックIP)"| NextCheck["後続のドメインホワイトリスト評価へ"]
     end
 

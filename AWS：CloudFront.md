@@ -136,7 +136,7 @@ mindmap
 
 ```mermaid
 flowchart TB
-    InternetUser(("🌐 インターネットユーザー<br>https://www.sample.com"))
+    InternetUser["🌐 インターネットユーザー<br>https://www.sample.com"]
 
     subgraph DNS_Layer ["DNS & 証明書管理"]
         R53["Amazon Route 53<br>ホストゾーン (sample.com)<br>Alias A/AAAA レコード"]
@@ -1719,7 +1719,7 @@ flowchart LR
     CF_Metrics["CloudFront / WAF メトリクス<br>(5xxErrorRate, BlockedRequests)"]
     --> CW_Alarm["CloudWatch Alarm<br>(しきい値超過検知)"]
     --> SNS["Amazon SNS トピック<br>(sns-ops-alerts)"]
-    --> Email[("📧 運用担当者メール / Slack")]
+    --> Email["📧 運用担当者メール / Slack"]
 ```
 
 #### 手順 (CLI)

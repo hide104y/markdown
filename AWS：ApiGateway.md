@@ -175,8 +175,8 @@ flowchart TB
     end
 
     %% 通信線
-    ECS1 -->|"HTTPS (Port 443)<br>Private DNS解決"| VPCE_1a
-    ECS2 -->|"HTTPS (Port 443)<br>Private DNS解決"| VPCE_1c
+    ECS1 -->|"HTTPS (Port 443) / Private DNS"| VPCE_1a
+    ECS2 -->|"HTTPS (Port 443) / Private DNS"| VPCE_1c
     VPCE_1a -->|"AWS PrivateLink"| APIGW
     VPCE_1c -->|"AWS PrivateLink"| APIGW
 

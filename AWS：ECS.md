@@ -1828,13 +1828,13 @@ Container Insights を有効化することで、以下の詳細メトリクス�
 ```mermaid
 flowchart TD
     ECS_Metrics["ECS メトリクス / ALB メトリクス"] --> CW_Alarm["CloudWatch アラーム"]
-    ECS_Events["ECS タスク状態変化<br>(Task State Change: STOPPED)"] --> EventBridge["Amazon EventBridge"]
+    ECS_Events["ECS タスク状態変化<br>（Task State Change: STOPPED）"] --> EventBridge["Amazon EventBridge"]
     
-    CW_Alarm --> SNS["Amazon SNS トピック<br>(arn:aws:sns:...:ecs-alert-topic)"]
+    CW_Alarm --> SNS["Amazon SNS トピック<br>（ecs-alert-topic）"]
     EventBridge --> SNS
     
-    SNS --> Email(("📧 運用チーム メール通知"))
-    SNS --> Slack(("💬 Slack 通知 (Chatbot連携)"))
+    SNS --> Email["📧 運用チーム メール通知"]
+    SNS --> Slack["💬 Slack 通知（Chatbot連携）"]
 ```
 
 ---
@@ -1916,17 +1916,17 @@ aws events put-targets \
 flowchart TD
     Start["タスクが STOPPED になる"] --> CheckCode{"停止コード / 理由の確認"}
     
-    CheckCode -->|"CannotPullContainerError"| ECR_Issue["ECR 通信・認証エラー"]
-    ECR_Issue --> Fix_ECR["1. VPCエンドポイントの設定確認 (ecr.api, ecr.dkr, s3 gw)<br>2. タスク実行ロールに ECR 権限があるか確認<br>3. SG-VPCE で 443 が許可されているか確認"]
+    CheckCode -->|CannotPullContainerError| ECR_Issue["ECR 通信・認証エラー"]
+    ECR_Issue --> Fix_ECR["1. VPCエンドポイントの設定確認（ecr.api, ecr.dkr, s3 gw）<br>2. タスク実行ロールに ECR 権限があるか確認<br>3. SG-VPCE で 443 が許可されているか確認"]
 
-    CheckCode -->|"ResourceInitializationError<br>(EFS mount failed)"| EFS_Issue["EFS マウント失敗"]
-    EFS_Issue --> Fix_EFS["1. SG-EFS で ECS からの 2049 ポートが許可されているか確認<br>2. EFS アクセスポイント ID が正しいか確認<br>3. タスクロールに ClientMount 権限があるか確認"]
+    CheckCode -->|ResourceInitializationError: EFS| EFS_Issue["EFS マウント失敗<br>（EFS mount failed）"]
+    EFS_Issue --> Fix_EFS["1. SG-EFS で ECS からの 2049 ポート許可確認<br>2. EFS アクセスポイント ID 確認<br>3. タスクロールに ClientMount 権限確認"]
 
-    CheckCode -->|"ResourceInitializationError<br>(Secrets/SSM failed)"| Sec_Issue["Secrets/パラメータ取得失敗"]
-    Sec_Issue --> Fix_Sec["1. VPCエンドポイントの確認 (secretsmanager, ssm)<br>2. タスク実行ロールに Secrets/KMS 復号権限があるか確認"]
+    CheckCode -->|ResourceInitializationError: Secrets| Sec_Issue["Secrets/パラメータ取得失敗<br>（Secrets/SSM failed）"]
+    Sec_Issue --> Fix_Sec["1. VPCエンドポイントの確認（secretsmanager, ssm）<br>2. タスク実行ロールに Secrets/KMS 復号権限確認"]
 
-    CheckCode -->|"EssentialContainerExited<br>(Exit Code: 1 / 137)"| App_Issue["コンテナ内部クラッシュ"]
-    App_Issue --> Fix_App["1. Exit Code 137: メモリ不足 (OOM) → メモリサイズ拡張<br>2. Exit Code 1: CloudWatch Logs を確認してアプリ例外を調査"]
+    CheckCode -->|EssentialContainerExited| App_Issue["コンテナ内部クラッシュ<br>（Exit Code: 1 / 137）"]
+    App_Issue --> Fix_App["1. Exit Code 137: メモリ不足（OOM）→ メモリ拡張<br>2. Exit Code 1: CloudWatch Logs でアプリ例外調査"]
 ```
 
 ---
