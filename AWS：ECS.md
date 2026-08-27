@@ -98,26 +98,28 @@ tags:
 **AWS Fargate** は、ECS 向けのサーバーレスコンピュートエンジンであり、基盤となる EC2 インスタンスのプロビジョニング、OS パッチ適用、クラスタサイズ管理を行うことなく、コンテナを実行できます。
 
 ```mermaid
-mindmap
-  root(("Amazon ECS on Fargate"))
-    サーバーレス運用
-      EC2インスタンス管理不要
-      OSパッチ・セキュリティ更新自動
-      ["タスク単位のリソース割当 (vCPU/Mem)"]
-    高可用性と耐障害性
-      マルチAZ自動分散配置
-      ["デプロイサーキットブレーカー (自動ロールバック)"]
-      ALBヘルスチェック連携
-    セキュリティ
-      タスク実行ロールとタスクロールの厳格分離
-      ["Secrets Manager / SSM Parameter 連携"]
-      KMSによる暗号化
-      ECS Execによる安全な対話型アクセス
-    ストレージ・連携サービス
-      Amazon EFS 永続共有マウント
-      ["Amazon S3 / Amazon DynamoDB 連携"]
-      Amazon API Gateway 統合
-      Amazon ECR コンテナレジストリ
+flowchart LR
+    Root["Amazon ECS on Fargate"]
+    
+    Root --> C1["サーバーレス運用"]
+    C1 --> C1_1["EC2インスタンス管理不要"]
+    C1 --> C1_2["OSパッチ・セキュリティ更新自動"]
+    C1 --> C1_3["タスク単位のリソース割当（vCPU/Mem）"]
+
+    Root --> C2["高可用性と耐障害性"]
+    C2 --> C2_1["マルチAZ自動分散配置"]
+    C2 --> C2_2["デプロイサーキットブレーカー（自動ロールバック）"]
+    C2 --> C2_3["ALBヘルスチェック連携"]
+
+    Root --> C3["セキュリティ"]
+    C3 --> C3_1["実行ロールとタスクロールの厳格分離"]
+    C3 --> C3_2["Secrets Manager / SSM 連携"]
+    C3 --> C3_3["KMS暗号化 / ECS Exec 安全アクセス"]
+
+    Root --> C4["ストレージ・連携サービス"]
+    C4 --> C4_1["Amazon EFS 永続共有マウント"]
+    C4 --> C4_2["Amazon S3 / DynamoDB 連携"]
+    C4 --> C4_3["Amazon API Gateway / ECR 統合"]
 ```
 
 ---
@@ -132,47 +134,47 @@ mindmap
 
 ```mermaid
 flowchart TB
-    InternetUser(("🌐 インターネットユーザー"))
+    InternetUser["🌐 インターネットユーザー"]
     
     subgraph EdgeLayer ["エッジレイヤー"]
         CF["AWS CloudFront<br>+ AWS WAF"]
     end
 
-    subgraph VPCA ["VPC-A (サービス提供用VPC: 10.100.50.0/24)"]
-        subgraph SubnetALB ["ALB サブネット (プライベート 1a/1c)"]
-            ALB["内部 ALB<br>(Dual AZ)"]
+    subgraph VPCA ["VPC-A（サービス提供用VPC: 10.100.50.0/24）"]
+        subgraph SubnetALB ["ALB サブネット（プライベート 1a/1c）"]
+            ALB["内部 ALB<br>（Dual AZ）"]
         end
 
-        subgraph SubnetECS ["ECS サブネット (プライベート 1a/1c)"]
+        subgraph SubnetECS ["ECS サブネット（プライベート 1a/1c）"]
             direction TB
-            ECS1["ECS Task (Fargate)<br>AZ-1a"]
-            ECS2["ECS Task (Fargate)<br>AZ-1c"]
+            ECS1["ECS Task（Fargate）<br>AZ-1a"]
+            ECS2["ECS Task（Fargate）<br>AZ-1c"]
         end
 
-        subgraph SubnetEC2 ["デプロイ サブネット (プライベート 1a)"]
-            EC2Deploy["EC2 Deploy Host<br>(Ubuntu LTS + Docker)"]
+        subgraph SubnetEC2 ["デプロイ サブネット（プライベート 1a）"]
+            EC2Deploy["EC2 Deploy Host<br>（Ubuntu LTS + Docker）"]
         end
 
-        subgraph SubnetVPCE ["VPC エンドポイント サブネット (1a/1c)"]
-            VPCE_ECR["VPCE: ECR (api/dkr)"]
+        subgraph SubnetVPCE ["VPC エンドポイント サブネット（1a/1c）"]
+            VPCE_ECR["VPCE: ECR（api/dkr）"]
             VPCE_CW["VPCE: CloudWatch Logs"]
             VPCE_SEC["VPCE: Secrets Manager / SSM"]
             VPCE_EFS["VPCE: EFS / API GW"]
         end
 
-        EFS[("Amazon EFS<br>(共有ストレージ)")]
+        EFS["Amazon EFS<br>（共有ストレージ）"]
     end
 
     subgraph AWS_Managed_Services ["AWS マネージドサービス"]
-        ECR[("Amazon ECR<br>コンテナレジストリ")]
-        S3[("Amazon S3 バケット")]
-        DDB[("Amazon DynamoDB")]
+        ECR["Amazon ECR<br>コンテナレジストリ"]
+        S3["Amazon S3 バケット"]
+        DDB["Amazon DynamoDB"]
         APIGW["Amazon API Gateway"]
-        CW[("CloudWatch Logs / Insights")]
+        CW["CloudWatch Logs / Insights"]
         SM["Secrets Manager / SSM"]
     end
 
-    subgraph VPCB ["VPC-B (通信制御ハブVPC: 10.100.51.0/24)"]
+    subgraph VPCB ["VPC-B（通信制御ハブVPC: 10.100.51.0/24）"]
         TGW_B["Transit Gateway Attachment"]
         NFW["AWS Network Firewall"]
         NATGW["NAT Gateway"]
@@ -186,8 +188,8 @@ flowchart TB
     ALB -->|"HTTP/TCP"| ECS2
 
     %% 内部連携フロー
-    ECS1 <-->|"NFSv4.1 / TLS"| EFS
-    ECS2 <-->|"NFSv4.1 / TLS"| EFS
+    ECS1 -->|"NFSv4.1 / TLS"| EFS
+    ECS2 -->|"NFSv4.1 / TLS"| EFS
     ECS1 -->|"VPCE / IAM認証"| S3
     ECS2 -->|"VPCE / IAM認証"| S3
     ECS1 -->|"VPCE / IAM認証"| DDB
@@ -213,17 +215,17 @@ flowchart TB
     TGW_B --> NFW
     NFW --> NATGW
     NATGW --> IGW
-    IGW --> ExternalInternet(("🌐 外部API / SaaS"))
+    IGW --> ExternalInternet["🌐 外部API / SaaS"]
 
-    classDef aws fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
-    classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#e65100;
-    classDef net fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
-    classDef sec fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#880e4f;
+    classDef aws fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1
+    classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#e65100
+    classDef net fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
+    classDef sec fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#880e4f
 
-    class CF,ALB,ECS1,ECS2,EC2Deploy aws;
-    class EFS,ECR,S3,DDB,CW,SM storage;
-    class NFW,NATGW,IGW,TGW_B net;
-    class VPCE_ECR,VPCE_CW,VPCE_SEC,VPCE_EFS sec;
+    class CF,ALB,ECS1,ECS2,EC2Deploy aws
+    class EFS,ECR,S3,DDB,CW,SM storage
+    class NFW,NATGW,IGW,TGW_B net
+    class VPCE_ECR,VPCE_CW,VPCE_SEC,VPCE_EFS sec
 ```
 
 ---
@@ -233,25 +235,25 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Client as クライアント (Internet)
+    actor Client as クライアント
     participant CF as CloudFront + WAF
-    participant ALB as 内部 ALB (VPC-A)
-    participant ECS as ECS Fargate (App)
+    participant ALB as 内部 ALB
+    participant ECS as ECS Fargate
     participant EFS as Amazon EFS
     participant VPCE as VPC Endpoints
     participant TGW as Transit GW / Hub VPC
-    participant Ext as 外部SaaS/API
+    participant Ext as 外部SaaS / API
 
     Note over Client,ALB: 1. リクエスト受信 & 転送
     Client->>CF: HTTPS リクエスト
-    CF->>CF: WAF検査 & カスタムヘッダー付与 (X-Origin-Verify)
-    CF->>ALB: HTTPS 通信 (Direct Connect/VPN/Private経由)
-    ALB->>ALB: カスタムヘッダー検証 (不一致時は403)
-    ALB->>ECS: HTTP リクエスト転送 (Target: Fargate IP)
+    CF->>CF: WAF検査 & カスタムヘッダー付与（X-Origin-Verify）
+    CF->>ALB: HTTPS 通信（Private経由）
+    ALB->>ALB: カスタムヘッダー検証（不一致時は403）
+    ALB->>ECS: HTTP リクエスト転送（Target: Fargate IP）
 
     Note over ECS,EFS: 2. データ処理 & バックエンド連携
-    ECS->>EFS: ファイル読み書き (NFS/TLS / IAMアクセスポイント)
-    ECS->>VPCE: DynamoDB / S3 / API Gateway アクセス (VPC内部完結)
+    ECS->>EFS: ファイル読み書き（NFS/TLS）
+    ECS->>VPCE: DynamoDB / S3 / API Gateway アクセス
     ECS-->>ALB: レスポンス返却
     ALB-->>CF: レスポンス転送
     CF-->>Client: HTTPS レスポンス返却
@@ -302,16 +304,16 @@ ECS サブネットおよび EC2 デプロイサブネットからのインタ�
 
 ```mermaid
 flowchart LR
-    subgraph VPC_A ["VPC-A (サービス用)"]
+    subgraph VPC_A ["VPC-A（サービス用）"]
         ECS_Subnet["ECS サブネット<br>10.100.50.128/26, 10.100.50.192/26"]
-        RT_ECS["ルートテーブル: rtb-vpca-ecs<br>10.100.50.0/24 → local<br>0.0.0.0/0 → tgw-xxxx<br>pl-s3/dynamodb → vpce-gw"]
+        RT_ECS["ルートテーブル: rtb-vpca-ecs<br>10.100.50.0/24 : local<br>0.0.0.0/0 : tgw-xxxx<br>pl-s3/dynamodb : vpce-gw"]
     end
 
     subgraph Transit_Gateway ["AWS Transit Gateway"]
         TGW["TGW: tgw-xxxx"]
     end
 
-    subgraph VPC_B ["VPC-B (ハブVPC)"]
+    subgraph VPC_B ["VPC-B（ハブVPC）"]
         RT_Hub["Network Firewall / NAT GW"]
         IGW["Internet Gateway"]
     end
@@ -502,12 +504,12 @@ done
 
 ```mermaid
 flowchart LR
-    Dev["EC2 Deploy Host"] -->|docker push| ECR["Amazon ECR Repository"]
+    Dev["EC2 Deploy Host"] -->|"docker push"| ECR["Amazon ECR Repository"]
     subgraph ECRFeatures ["ECR セキュリティ & ガバナンス"]
-        KMS["KMS CMK 暗号化<br>(保管時保護)"]
-        TagImm["タグ不変性<br>(上書き禁止)"]
-        Scan["自動脆弱性スキャン<br>(CVE検知)"]
-        Lifecycle["ライフサイクルポリシー<br>(古イメージ自動削除)"]
+        KMS["KMS CMK 暗号化<br>（保管時保護）"]
+        TagImm["タグ不変性<br>（上書き禁止）"]
+        Scan["自動脆弱性スキャン<br>（CVE検知）"]
+        Lifecycle["ライフサイクルポリシー<br>（古イメージ自動削除）"]
     end
     ECR --- KMS
     ECR --- TagImm
@@ -604,16 +606,16 @@ aws ecr put-lifecycle-policy \
 
 ```mermaid
 flowchart LR
-    Client["クライアント"] -->|"HTTPS"| CF["AWS CloudFront<br>カスタムヘッダー付与<br>X-Origin-Verify: SecretToken"]
-    CF -->|"HTTPS:443"| ALB["内部 ALB (プライベート)<br>リスナールール検証"]
+    Client["クライアント"] -->|"HTTPS"| CF["AWS CloudFront<br>カスタムヘッダー付与<br>X-Origin-Verify"]
+    CF -->|"HTTPS:443"| ALB["内部 ALB（プライベート）<br>リスナールール検証"]
     
     subgraph ALB_Rule ["ALB リスナールール判定"]
-        Check{"X-Origin-Verify<br>== SecretToken ?"}
+        Check{"X-Origin-Verify<br>一致判定"}
         Check -->|"一致 (YES)"| Forward["ECS Fargate ターゲットグループへ転送"]
-        Check -->|"不一致 (NO)"| Block["403 Forbidden 返却 (アクセス拒否)"]
+        Check -->|"不一致 (NO)"| Block["403 Forbidden 返却（アクセス拒否）"]
     end
 
-    ALB --> ALB_Rule
+    ALB --> Check
 ```
 
 ---
@@ -724,9 +726,9 @@ ECS では、**2 種類の異なる IAM ロール** を明確に使い分ける�
 ```mermaid
 flowchart TD
     subgraph Roles ["ECS / デプロイ IAM ロール体系"]
-        ExecRole["1. ECS タスク実行ロール<br>(Task Execution Role)"]
-        TaskRole["2. ECS タスクロール<br>(Task Role)"]
-        DeployRole["3. EC2 デプロイロール<br>(Deploy Host Role)"]
+        ExecRole["1. ECS タスク実行ロール<br>（Task Execution Role）"]
+        TaskRole["2. ECS タスクロール<br>（Task Role）"]
+        DeployRole["3. EC2 デプロイロール<br>（Deploy Host Role）"]
     end
 
     subgraph AWS_ControlPlane ["AWS 基盤・エージェント層"]
@@ -736,11 +738,11 @@ flowchart TD
     end
 
     subgraph App_DataPlane ["コンテナアプリケーション層"]
-        EFS_Mount["EFS 読み書き (ClientMount/Write)"]
+        EFS_Mount["EFS 読み書き（ClientMount/Write）"]
         S3_Access["S3 バケット読み書き"]
         DDB_Access["DynamoDB 読み書き"]
         APIGW_Call["API Gateway execute-api 呼出"]
-        SSM_Exec["ECS Exec (ssmmessages)"]
+        SSM_Exec["ECS Exec（ssmmessages）"]
     end
 
     subgraph Build_Pipeline ["デプロイパイプライン"]
@@ -761,12 +763,12 @@ flowchart TD
     DeployRole --> ECR_Push
     DeployRole --> ECS_Update
 
-    classDef exec fill:#e3f2fd,stroke:#1565c0,stroke-width:2px;
-    classDef task fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
-    classDef deploy fill:#fff3e0,stroke:#e65100,stroke-width:2px;
-    class ExecRole exec;
-    class TaskRole task;
-    class DeployRole deploy;
+    classDef exec fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef task fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef deploy fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    class ExecRole exec
+    class TaskRole task
+    class DeployRole deploy
 ```
 
 ---
@@ -1027,7 +1029,7 @@ flowchart LR
         SG_VPCE["sg-vpce"]
         SG_EFS["sg-efs"]
         SG_EC2["sg-ec2-deploy"]
-        SG_TGW["0.0.0.0/0 (TGW → NFW)"]
+        SG_TGW["0.0.0.0/0（TGW / NFW）"]
 
         SG_CF -->|"HTTPS:443"| SG_ALB
         SG_ALB -->|"HTTP:8080"| SG_ECS
@@ -1038,8 +1040,8 @@ flowchart LR
         SG_EC2 -->|"TCP/HTTP"| SG_TGW
     end
 
-    classDef sg fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px;
-    class SG_ALB,SG_ECS,SG_VPCE,SG_EFS,SG_EC2 sg;
+    classDef sg fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    class SG_ALB,SG_ECS,SG_VPCE,SG_EFS,SG_EC2 sg
 ```
 
 ---
@@ -1249,14 +1251,14 @@ EC2 にアタッチした IAM ロール（`ec2DeployHostRole`）により、ア�
 ```mermaid
 sequenceDiagram
     autonumber
-    participant EC2 as EC2 (Ubuntu Docker)
+    participant EC2 as EC2 Deploy Host
     participant ECR as Amazon ECR
     participant ECS as Amazon ECS
 
     EC2->>EC2: 1. ソースコード更新 & Docker Build (amd64)
     EC2->>ECR: 2. aws ecr get-login-password で Docker ログイン
     EC2->>ECR: 3. docker push (タグ: v1.0.1)
-    EC2->>ECS: 4. aws ecs update-service --force-new-deployment
+    EC2->>ECS: 4. aws ecs update-service (force-new-deployment)
     ECS->>ECR: 5. Fargate が新規イメージを Pull
     ECS->>ECS: 6. 新タスク起動 & ヘルスチェックパス
     ECS->>ECS: 7. 旧タスクをドレイン & 停止 (無停止デプロイ完了)
@@ -1297,7 +1299,7 @@ flowchart TD
     subgraph ALB_Priority ["ALB リスナールール評価 (優先度順)"]
         direction TB
         R10{"Priority 10:<br>X-Maintenance-Bypass 一致?"}
-        R20{"Priority 20:<br>メンテナンスルール有効 (Path /*) ?"}
+        R20{"Priority 20:<br>メンテナンスルール有効（Path: すべて）?"}
         R30{"Priority 30:<br>X-Origin-Verify 一致 (通常時)?"}
         R_Def["Default Action:<br>403 Forbidden"]
 
@@ -1309,15 +1311,15 @@ flowchart TD
         R30 -->|"NO"| R_Def
     end
 
-    classDef alb fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
-    classDef action fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
-    classDef maint fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#e65100;
-    classDef block fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c;
+    classDef alb fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1
+    classDef action fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20
+    classDef maint fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#e65100
+    classDef block fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c
 
-    class ALB,R10,R20,R30 alb;
-    class Forward_ECS action;
-    class Maint_503 maint;
-    class R_Def block;
+    class ALB,R10,R20,R30 alb
+    class Forward_ECS action
+    class Maint_503 maint
+    class R_Def block
 ```
 
 #### ALB リスナールール優先度マトリクス (Priority Matrix)
@@ -1342,24 +1344,24 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Admin as 👨‍💻 デプロイ担当者
-    actor User as 🌐 一般ユーザー
+    actor Admin as デプロイ担当者
+    actor User as 一般ユーザー
     participant ALB as 内部 ALB
-    participant ECS as ECS Fargate (v1.0.0 → v1.0.1)
+    participant ECS as ECS Fargate
 
     Note over Admin,ALB: Step 1: メンテナンス画面の有効化
-    Admin->>ALB: Priority 20 にメンテナンス画面ルール (503) を作成
+    Admin->>ALB: Priority 20 にメンテナンス画面ルール（503）を作成
     User->>ALB: 通常アクセス
     ALB-->>User: 503 メンテナンス画面を返却
 
     Note over Admin,ECS: Step 2: ECSサービスの更新
-    Admin->>ECS: 新イメージ (v1.0.1) タスク定義登録 & ローリングアップデート
+    Admin->>ECS: 新イメージ（v1.0.1）タスク定義登録 & ローリングアップデート
     ECS->>ECS: 新タスク起動 & ヘルスチェックパス
     ECS->>ECS: 旧タスクのドレイン & 停止
 
-    Note over Admin,ECS: Step 3: バイパス動作確認 (スモークテスト)
-    Admin->>ALB: バイパスヘッダー付与アクセス (X-Maintenance-Bypass)
-    ALB->>ECS: Priority 10 により新タスク (v1.0.1) へ転送
+    Note over Admin,ECS: Step 3: バイパス動作確認（スモークテスト）
+    Admin->>ALB: バイパスヘッダー付与アクセス（X-Maintenance-Bypass）
+    ALB->>ECS: Priority 10 により新タスク（v1.0.1）へ転送
     ECS-->>Admin: 新バージョンの正常レスポンス確認
     User->>ALB: 通常アクセス
     ALB-->>User: 503 メンテナンス画面を継続返却
@@ -1367,8 +1369,8 @@ sequenceDiagram
     Note over Admin,ALB: Step 4: メンテナンス画面の解除
     Admin->>ALB: Priority 20 のメンテナンス画面ルールを削除
     User->>ALB: 通常アクセス
-    ALB->>ECS: Priority 30 により新タスク (v1.0.1) へ転送
-    ECS-->>User: 200 OK (新バージョンのサービス提供再開)
+    ALB->>ECS: Priority 30 により新タスク（v1.0.1）へ転送
+    ECS-->>User: 200 OK（新バージョンのサービス提供再開）
 ```
 
 ---
@@ -1622,26 +1624,28 @@ aws elbv2 delete-rule --rule-arn ${RULE_20_ARN}
 
 ```mermaid
 flowchart TD
-    subgraph StatelessLayer ["ステートレス層 (ECS Fargate)"]
-        TaskDef["タスク定義 (リビジョン管理)"]
-        GitRepo["Git / IaC (Terraform / CloudFormation)"]
-        TaskInstance["ECS タスク (いつでも破棄・再生成可能)"]
+    subgraph StatelessLayer ["ステートレス層（ECS Fargate）"]
+        TaskDef["タスク定義（リビジョン管理）"]
+        GitRepo["Git / IaC（Terraform / CloudFormation）"]
+        TaskInstance["ECS タスク（いつでも破棄・再生成可能）"]
         GitRepo --> TaskDef
         TaskDef --> TaskInstance
     end
 
-    subgraph StatefulLayer ["ステートフル層 (永続データストア)"]
-        EFS_Data[("Amazon EFS")]
-        DDB_Data[("Amazon DynamoDB")]
-        S3_Data[("Amazon S3")]
-        BackupVault[("AWS Backup ボールト<br>(自動バックアップ・暗号化・Vault Lock)")]
+    subgraph StatefulLayer ["ステートフル層（永続データストア）"]
+        EFS_Data["Amazon EFS"]
+        DDB_Data["Amazon DynamoDB"]
+        S3_Data["Amazon S3"]
+        BackupVault["AWS Backup ボールト<br>（自動バックアップ・暗号化・Vault Lock）"]
 
         EFS_Data -->|"日次自動バックアップ"| BackupVault
         DDB_Data -->|"日次自動バックアップ"| BackupVault
         S3_Data -->|"日次自動バックアップ"| BackupVault
     end
 
-    TaskInstance <-->|"マウント / CRUD"| StatefulLayer
+    TaskInstance -->|"NFSマウント"| EFS_Data
+    TaskInstance -->|"CRUD"| DDB_Data
+    TaskInstance -->|"Put/GetObject"| S3_Data
 ```
 
 ---
@@ -1753,8 +1757,8 @@ AWS アカウント全体の操作ログ（誰が、いつ、どこから、ど�
 flowchart LR
     Admin["開発者 / CI/CD / 管理者"] -->|"AWS API コール"| AWS_API["ECS / ECR / ALB / IAM API"]
     AWS_API --> CT["AWS CloudTrail"]
-    CT --> S3_Audit["S3 監査ログバケット<br>(S3 Object Lock / KMS暗号化)"]
-    CT --> CW_Trail["CloudWatch Logs<br>(リアルタイム不審操作アラーム)"]
+    CT --> S3_Audit["S3 監査ログバケット<br>（S3 Object Lock / KMS暗号化）"]
+    CT --> CW_Trail["CloudWatch Logs<br>（リアルタイム不審操作アラーム）"]
 ```
 
 #### CLI による証跡作成と S3・CloudWatch Logs 連携
@@ -1798,8 +1802,8 @@ aws logs put-retention-policy \
 
 ```mermaid
 flowchart LR
-    ECS["ECS Fargate タスク"] -->|"awslogs ドライバ"| CW_Logs["CloudWatch Logs<br>/ecs/app-production<br>(90日間保持)"]
-    CW_Logs -->|"サブスクリプションフィルター / S3エクスポート"| S3_Archive["Amazon S3 アーカイブ<br>(Glacier 移行・1年〜数年間保存)"]
+    ECS["ECS Fargate タスク"] -->|"awslogs ドライバ"| CW_Logs["CloudWatch Logs<br>/ecs/app-production<br>（90日間保持）"]
+    CW_Logs -->|"サブスクリプションフィルター / S3エクスポート"| S3_Archive["Amazon S3 アーカイブ<br>（Glacier 移行・1年〜数年間保存）"]
 ```
 
 #### S3 エクスポートタスク実行 (CLI)
@@ -1916,16 +1920,16 @@ aws events put-targets \
 flowchart TD
     Start["タスクが STOPPED になる"] --> CheckCode{"停止コード / 理由の確認"}
     
-    CheckCode -->|CannotPullContainerError| ECR_Issue["ECR 通信・認証エラー"]
+    CheckCode -->|"CannotPullContainerError"| ECR_Issue["ECR 通信・認証エラー"]
     ECR_Issue --> Fix_ECR["1. VPCエンドポイントの設定確認（ecr.api, ecr.dkr, s3 gw）<br>2. タスク実行ロールに ECR 権限があるか確認<br>3. SG-VPCE で 443 が許可されているか確認"]
 
-    CheckCode -->|ResourceInitializationError: EFS| EFS_Issue["EFS マウント失敗<br>（EFS mount failed）"]
+    CheckCode -->|"ResourceInitializationError (EFS)"| EFS_Issue["EFS マウント失敗<br>（EFS mount failed）"]
     EFS_Issue --> Fix_EFS["1. SG-EFS で ECS からの 2049 ポート許可確認<br>2. EFS アクセスポイント ID 確認<br>3. タスクロールに ClientMount 権限確認"]
 
-    CheckCode -->|ResourceInitializationError: Secrets| Sec_Issue["Secrets/パラメータ取得失敗<br>（Secrets/SSM failed）"]
+    CheckCode -->|"ResourceInitializationError (Secrets)"| Sec_Issue["Secrets/パラメータ取得失敗<br>（Secrets/SSM failed）"]
     Sec_Issue --> Fix_Sec["1. VPCエンドポイントの確認（secretsmanager, ssm）<br>2. タスク実行ロールに Secrets/KMS 復号権限確認"]
 
-    CheckCode -->|EssentialContainerExited| App_Issue["コンテナ内部クラッシュ<br>（Exit Code: 1 / 137）"]
+    CheckCode -->|"EssentialContainerExited"| App_Issue["コンテナ内部クラッシュ<br>（Exit Code: 1 / 137）"]
     App_Issue --> Fix_App["1. Exit Code 137: メモリ不足（OOM）→ メモリ拡張<br>2. Exit Code 1: CloudWatch Logs でアプリ例外調査"]
 ```
 
