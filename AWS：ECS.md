@@ -58,8 +58,13 @@ tags:
 - [8. アプリケーションのデプロイ手順とパイプライン](#8-アプリケーションのデプロイ手順とパイプライン)
   - [8.1 EC2（Ubuntu LTS）デプロイ環境のセットアップ（GUI / CLI）](#81-ec2ubuntu-ltsデプロイ環境のセットアップgui--cli)
   - [8.2 DockerイメージのビルドとECRプッシュ（CLI）](#82-dockerイメージのビルドとecrプッシュcli)
-  - [8.3 ECSサービスのローリングアップデート手順（GUI / CLI）](#83-ecsサービスのローリングアップデート手順gui--cli)
-  - [8.4 デプロイロールバックと動作確認（GUI / CLI）](#84-デプロイロールバックと動作確認gui--cli)
+  - [8.3 ALBメンテナンス画面制御とバイパス検証設計](#83-albメンテナンス画面制御とバイパス検証設計)
+  - [8.4 メンテナンスデプロイ手順（メンテ切替・ECS更新・動作確認・メンテ解除）（GUI / CLI）](#84-メンテナンスデプロイ手順メンテ切替ecs更新動作確認メンテ解除gui--cli)
+    - [8.4.1 Step 1: ALBメンテナンス画面の有効化（GUI / CLI）](#841-step-1-albメンテナンス画面の有効化gui--cli)
+    - [8.4.2 Step 2: ECSサービスのローリングアップデート実行（GUI / CLI）](#842-step-2-ecsサービスのローリングアップデート実行gui--cli)
+    - [8.4.3 Step 3: デプロイ担当者によるバイパス動作確認（CLI / ブラウザ）](#843-step-3-デプロイ担当者によるバイパス動作確認cli--ブラウザ)
+    - [8.4.4 Step 4: メンテナンス画面の解除と通常運用再開（GUI / CLI）](#844-step-4-メンテナンス画面の解除と通常運用再開gui--cli)
+  - [8.5 デプロイロールバックと緊急時対応（GUI / CLI）](#85-デプロイロールバックと緊急時対応gui--cli)
 - [9. メンテナンス・バックアップ・災害復旧（DR）設計](#9-メンテナンスバックアップ災害復旧dr設計)
   - [9.1 ECSにおけるメンテナンス・可用性の考え方（ステートレス分離）](#91-ecsにおけるメンテナンス可用性の考え方ステートレス分離)
   - [9.2 タスク定義・インフラの構成管理（IaC・リビジョン管理）](#92-タスク定義インフラの構成管理iacリビジョン管理)
@@ -692,10 +697,10 @@ LISTENER_ARN=$(aws elbv2 describe-listeners \
     --load-balancer-arn arn:aws:elasticloadbalancing:ap-northeast-1:123456789012:loadbalancer/app/alb-internal-vpca/xxxx \
     --query "Listeners[?Port==\`443\`].ListenerArn" --output text)
 
-# 2. カスタムヘッダー (X-Origin-Verify) が一致する場合に ECS ターゲットグループへ転送するルールを追加
+# 2. カスタムヘッダー (X-Origin-Verify) が一致する場合に ECS ターゲットグループへ転送するルールを追加（優先度 30）
 aws elbv2 create-rule \
     --listener-arn ${LISTENER_ARN} \
-    --priority 10 \
+    --priority 30 \
     --conditions '[
       {
         "Field": "http-header",
@@ -1278,47 +1283,330 @@ docker push ${ECR_URI}:${IMAGE_TAG}
 
 ---
 
-### 8.3 ECSサービスのローリングアップデート手順
+### 8.3 ALBメンテナンス画面制御とバイパス検証設計
 
-#### 新タスク定義の登録とサービス更新 (CLI)
+本番環境のリリース作業（DBマイグレーションや互換性のない更新を含むデプロイ）では、作業中の一般ユーザーのアクセスを遮断しつつ、**デプロイ担当者のみが新バージョンのコンテナにアクセスして動作確認（スモークテスト）を行い、確認完了後に一般公開を再開する仕組み** が不可欠です。
+
+本システムでは、内部 ALB の **リスナールール優先度（Priority）評価** と **固定レスポンス機能（Fixed Response）** を活用して、追加のインフラコストなしで安全なメンテナンスデプロイを実現します。
+
+```mermaid
+flowchart TD
+    Client["🌐 一般ユーザー"] -->|"通常アクセス"| ALB["内部 ALB (Listener: 443)"]
+    Admin["👨‍💻 デプロイ担当者"] -->|"X-Maintenance-Bypass ヘッダー付与"| ALB
+
+    subgraph ALB_Priority ["ALB リスナールール評価 (優先度順)"]
+        direction TB
+        R10{"Priority 10:<br>X-Maintenance-Bypass 一致?"}
+        R20{"Priority 20:<br>メンテナンスルール有効 (Path /*) ?"}
+        R30{"Priority 30:<br>X-Origin-Verify 一致 (通常時)?"}
+        R_Def["Default Action:<br>403 Forbidden"]
+
+        R10 -->|"YES (担当者)"| Forward_ECS["ECS Fargate ターゲットグループ<br>(新バージョン検証)"]
+        R10 -->|"NO"| R20
+        R20 -->|"YES (デプロイ中)"| Maint_503["固定レスポンス: 503<br>(HTML メンテナンス画面返却)"]
+        R20 -->|"NO (通常時)"| R30
+        R30 -->|"YES"| Forward_ECS
+        R30 -->|"NO"| R_Def
+    end
+
+    classDef alb fill:#e3f2fd,stroke:#1565c0,stroke-width:2px,color:#0d47a1;
+    classDef action fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px,color:#1b5e20;
+    classDef maint fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#e65100;
+    classDef block fill:#ffebee,stroke:#c62828,stroke-width:2px,color:#b71c1c;
+
+    class ALB,R10,R20,R30 alb;
+    class Forward_ECS action;
+    class Maint_503 maint;
+    class R_Def block;
+```
+
+#### ALB リスナールール優先度マトリクス (Priority Matrix)
+
+| 優先度 (Priority) | ルール名 | 条件 (Condition) | アクション (Action) | 状態・運用 |
+| :--- | :--- | :--- | :--- | :--- |
+| **10** | `rule-deploy-bypass` | `HTTP Header: X-Maintenance-Bypass == SecretBypass2026!` | 転送: `tg-ecs-fargate-app` | **常時登録**（デプロイ担当者専用バイパス） |
+| **20** | `rule-maintenance-page` | `Path pattern: /*` | 固定レスポンス: `503 Service Unavailable`<br>`Content-Type: text/html` | **デプロイ開始時に有効化 / 完了時に削除** |
+| **30** | `rule-cf-origin-forward` | `HTTP Header: X-Origin-Verify == MySuperSecretTokenValue2026!` | 転送: `tg-ecs-fargate-app` | **常時登録**（CloudFront 経由の通常通信） |
+| **Default** | `default-action` | なし (すべてに不一致) | 固定レスポンス: `403 Forbidden` | **常時登録**（不正アクセス遮断） |
+
+> [!TIP]
+> **バイパスキーのセキュリティ**:  
+> `X-Maintenance-Bypass` の値には、Secrets Manager や SSM Parameter Store 等で管理されたランダムかつ推測困難なシークレットトークンを使用します。定期的に変更することで第三者による不正アクセスを防止します。
+
+---
+
+### 8.4 メンテナンスデプロイ手順（メンテ切替・ECS更新・動作確認・メンテ解除）
+
+デプロイは以下の **4 つのステップ** で順次実行します。
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as 👨‍💻 デプロイ担当者
+    actor User as 🌐 一般ユーザー
+    participant ALB as 内部 ALB
+    participant ECS as ECS Fargate (v1.0.0 → v1.0.1)
+
+    Note over Admin,ALB: Step 1: メンテナンス画面の有効化
+    Admin->>ALB: Priority 20 にメンテナンス画面ルール (503) を作成
+    User->>ALB: 通常アクセス
+    ALB-->>User: 503 メンテナンス画面を返却
+
+    Note over Admin,ECS: Step 2: ECSサービスの更新
+    Admin->>ECS: 新イメージ (v1.0.1) タスク定義登録 & ローリングアップデート
+    ECS->>ECS: 新タスク起動 & ヘルスチェックパス
+    ECS->>ECS: 旧タスクのドレイン & 停止
+
+    Note over Admin,ECS: Step 3: バイパス動作確認 (スモークテスト)
+    Admin->>ALB: バイパスヘッダー付与アクセス (X-Maintenance-Bypass)
+    ALB->>ECS: Priority 10 により新タスク (v1.0.1) へ転送
+    ECS-->>Admin: 新バージョンの正常レスポンス確認
+    User->>ALB: 通常アクセス
+    ALB-->>User: 503 メンテナンス画面を継続返却
+
+    Note over Admin,ALB: Step 4: メンテナンス画面の解除
+    Admin->>ALB: Priority 20 のメンテナンス画面ルールを削除
+    User->>ALB: 通常アクセス
+    ALB->>ECS: Priority 30 により新タスク (v1.0.1) へ転送
+    ECS-->>User: 200 OK (新バージョンのサービス提供再開)
+```
+
+---
+
+#### 8.4.1 Step 1: ALBメンテナンス画面の有効化
+
+一般ユーザーからのアクセスに対して、ALB からメンテナンス画面（HTTP 503）を即座に返却するように設定します。
+
+##### メンテナンス画面用 HTML テンプレート (`maintenance.html`)
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>システムメンテナンス中 | System Maintenance</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f8f9fa; color: #333; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .container { background: #fff; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); max-width: 520px; text-align: center; }
+    .icon { font-size: 48px; margin-bottom: 16px; }
+    h1 { font-size: 24px; margin-bottom: 12px; color: #1a202c; }
+    p { font-size: 15px; line-height: 1.6; color: #4a5568; margin-bottom: 20px; }
+    .time-badge { display: inline-block; background-color: #edf2f7; color: #2d3748; padding: 8px 16px; border-radius: 6px; font-size: 14px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="icon">🛠️</div>
+    <h1>システムメンテナンス中</h1>
+    <p>現在、サービス向上のためのシステムメンテナンスを実施しております。<br>ご不便をおかけいたしますが、作業完了まで今しばらくお待ちください。</p>
+    <div class="time-badge">メンテナンス予定時間: 13:00 〜 14:00 (JST)</div>
+  </div>
+</body>
+</html>
+```
+
+##### GUI 手順 (Step 1)
+1. **[EC2]** $\rightarrow$ **[ロードバランサー]** $\rightarrow$ `alb-internal-vpca` を選択。
+2. **[リスナーとルール]** タブ $\rightarrow$ ポート `443` のリスナーを選択 $\rightarrow$ **[ルールを管理]** をクリック。
+3. **[+] (ルールの追加)** をクリック:
+   - **優先度**: `20`
+   - **条件の追加**: **「パス」** $\rightarrow$ `/*`
+   - **アクションの追加**: **「固定レスポンスを返す」**
+     - 応答コード: `503`
+     - コンテンツタイプ: `text/html`
+     - レスポンス本文: 上記の `maintenance.html` の内容を貼り付け
+4. **[保存]** をクリック。
+
+##### CLI 手順 (Step 1)
 ```bash
-# 1. 新しいイメージタグでタスク定義を登録（jqでコンテナイメージを置換）
+# 1. リスナー ARN の取得
+LISTENER_ARN=$(aws elbv2 describe-listeners \
+    --load-balancer-arn arn:aws:elasticloadbalancing:ap-northeast-1:123456789012:loadbalancer/app/alb-internal-vpca/xxxx \
+    --query "Listeners[?Port==\`443\`].ListenerArn" --output text)
+
+# 2. Priority 20 にメンテナンス画面ルール (503 Fixed Response) を作成
+MAINT_HTML='<!DOCTYPE html><html lang="ja"><head><meta charset="UTF-8"><title>システムメンテナンス中</title><style>body{font-family:sans-serif;background:#f8f9fa;text-align:center;padding:50px;}</style></head><body><h1>🛠️ システムメンテナンス中</h1><p>現在、システムメンテナンスを実施しております。作業完了まで今しばらくお待ちください。</p></body></html>'
+
+aws elbv2 create-rule \
+    --listener-arn ${LISTENER_ARN} \
+    --priority 20 \
+    --conditions '[{"Field":"path-pattern","PathPatternConfig":{"Values":["/*"]}}]' \
+    --actions "[{\"Type\":\"fixed-response\",\"FixedResponseConfig\":{\"StatusCode\":\"503\",\"ContentType\":\"text/html\",\"MessageBody\":\"${MAINT_HTML}\"}}]"
+
+# 3. 動作確認（503 メンテナンス画面が返ることを確認）
+curl -i https://app.example.com/
+```
+
+---
+
+#### 8.4.2 Step 2: ECSサービスのローリングアップデート実行
+
+新しいコンテナイメージ（例: `v1.0.1`）を反映した新しいタスク定義リビジョンを登録し、ECS サービスをローリングアップデートします。
+
+##### GUI 手順 (Step 2)
+1. **[Amazon ECS]** $\rightarrow$ **[クラスター]** $\rightarrow$ `ecs-cluster-production` を選択。
+2. **[サービス]** タブ $\rightarrow$ `app-production-service` を選択 $\rightarrow$ **[サービスの更新]** をクリック。
+3. **リビジョン**: 登録した最新リビジョンを選択（またはコンテナイメージ URI を更新）。
+4. **[新しいデプロイの強制]** にチェック。
+5. **[更新]** をクリック。
+
+##### CLI 手順 (Step 2)
+```bash
+# 1. 新イメージタグでタスク定義を新規登録
 NEW_TASK_DEF=$(aws ecs describe-task-definition --task-definition app-production-task \
     | jq --arg IMAGE "${ECR_URI}:${IMAGE_TAG}" '.taskDefinition | .containerDefinitions[0].image = $IMAGE | del(.taskDefinitionArn, .revision, .status, .requiresAttributes, .compatibilities, .registeredAt, .registeredBy)')
 
 aws ecs register-task-definition --cli-input-json "${NEW_TASK_DEF}"
 
-# 2. ECS サービスの更新（ローリングアップデートのトリガー）
+# 2. ECS サービスのローリングアップデートをトリガー
 aws ecs update-service \
     --cluster ecs-cluster-production \
     --service app-production-service \
     --task-definition app-production-task \
     --force-new-deployment
-```
 
-#### デプロイ完了の待機と確認 (CLI)
-```bash
-# デプロイが安定するまで待機
+# 3. デプロイ完了と新タスクの起動安定化を待機
+echo "Waiting for ECS Service to stabilize..."
 aws ecs wait services-stable \
     --cluster ecs-cluster-production \
     --services app-production-service
 
-echo "ECS Service Deployment Completed Successfully!"
+# 4. ターゲットグループのヘルス状態を確認 (全タスクが healthy であること)
+TARGET_GROUP_ARN=$(aws elbv2 describe-target-groups --names tg-ecs-fargate-app --query "TargetGroups[0].TargetGroupArn" --output text)
+aws elbv2 describe-target-health --target-group-arn ${TARGET_GROUP_ARN}
 ```
 
 ---
 
-### 8.4 デプロイロールバックと動作確認
+#### 8.4.3 Step 3: デプロイ担当者によるバイパス動作確認（CLI / ブラウザ）
 
-万一、新しいバージョンに問題が発生した場合の手動即時ロールバック手順：
+一般ユーザーには引き続きメンテナンス画面（503）が表示されている状態で、**デプロイ担当者のみが新バージョンのコンテナにアクセスして動作確認（スモークテスト・E2Eテスト）** を実施します。
+
+##### バイパスルールの設定確認 (Priority 10)
+ALB に以下のバイパスルールが登録されていることを確認します（未登録の場合は登録します）：
 
 ```bash
-# 直前の安定リビジョン（例: リビジョン 5）に戻す
+# Priority 10 のバイパスルール作成（未作成の場合のみ実行）
+aws elbv2 create-rule \
+    --listener-arn ${LISTENER_ARN} \
+    --priority 10 \
+    --conditions '[
+      {
+        "Field": "http-header",
+        "HttpHeaderConfig": {
+          "HttpHeaderName": "X-Maintenance-Bypass",
+          "Values": ["SecretBypass2026!"]
+        }
+      }
+    ]' \
+    --actions Type=forward,TargetGroupArn=${TARGET_GROUP_ARN}
+```
+
+##### 動作確認方法 1: CLI (curl) による API & バージョン検証
+デプロイホスト（EC2）または管理者端末から、`X-Maintenance-Bypass` ヘッダーを付与してリクエストを送信します。
+
+```bash
+# 1. 通常アクセス（ヘッダーなし）→ 503 メンテナンス画面が返ることを確認
+curl -i https://app.example.com/api/health
+# HTTP/2 503 Service Unavailable ...
+
+# 2. バイパスヘッダー付きアクセス → 新バージョン (v1.0.1) のコンテナから 200 OK が返ることを確認
+curl -i \
+    -H "X-Maintenance-Bypass: SecretBypass2026!" \
+    https://app.example.com/api/health
+# HTTP/2 200 OK
+# {"status":"healthy","version":"v1.0.1","timestamp":"2026-08-27T13:30:00Z"}
+
+# 3. 業務 API の疎通・DB 読み書きテスト
+curl -i -X POST \
+    -H "X-Maintenance-Bypass: SecretBypass2026!" \
+    -H "Content-Type: application/json" \
+    -d '{"testKey":"deploy-verification"}' \
+    https://app.example.com/api/v1/smoke-test
+```
+
+##### 動作確認方法 2: ブラウザでの画面・UI 動作検証
+ブラウザで実際の Web 画面を操作して動作確認を行う場合は、ブラウザ拡張機能（例: **ModHeader**）または開発者ツールを利用してリクエストヘッダーを付与します。
+
+1. ブラウザに **ModHeader** 拡張機能をインストール。
+2. 以下のリクエストヘッダーを追加して有効化：
+   - **Header Name**: `X-Maintenance-Bypass`
+   - **Header Value**: `SecretBypass2026!`
+3. 対象 Web サイト（`https://app.example.com`）にアクセス。
+4. **確認項目**:
+   - メンテナンス画面ではなく、新バージョンのトップページが正常に表示されること。
+   - ログイン・ログアウト処理が正常に行えること。
+   - データベース（DynamoDB 等）や EFS へのデータ保存・取得が正常に動作すること。
+   - コンソールエラーや 5XX エラーが発生していないこと。
+5. **CloudWatch Logs でのアクセス確認**:
+   - `/ecs/app-production` のログストリームで、新タスクが正常にリクエストを処理していることを確認。
+
+---
+
+#### 8.4.4 Step 4: メンテナンス画面の解除と通常運用再開
+
+動作確認ですべての項目が正常であることを確認した後、ALB のメンテナンス画面ルールを削除し、一般ユーザーへのサービス提供を再開します。
+
+##### GUI 手順 (Step 4)
+1. **[EC2]** $\rightarrow$ **[ロードバランサー]** $\rightarrow$ `alb-internal-vpca` を選択。
+2. **[リスナーとルール]** タブ $\rightarrow$ ポート `443` のリスナーを選択 $\rightarrow$ **[ルールを管理]** をクリック。
+3. 優先度 `20` の **メンテナンス画面ルール**（パス `/*` $\rightarrow$ 503）にチェックを入れ、**[アクション]** $\rightarrow$ **[ルールを削除]** をクリック。
+4. 削除を確認して保存。
+
+##### CLI 手順 (Step 4)
+```bash
+# 1. 優先度 20 のルール ARN を取得
+RULE_20_ARN=$(aws elbv2 describe-rules \
+    --listener-arn ${LISTENER_ARN} \
+    --query "Rules[?Priority==\`20\`].RuleArn" --output text)
+
+# 2. メンテナンス画面ルールを削除（一般トラフィックを通常転送ルール Priority 30 へ復旧）
+aws elbv2 delete-rule --rule-arn ${RULE_20_ARN}
+
+echo "Maintenance Mode Disabled. Normal Traffic Restored!"
+
+# 3. 一般公開の復旧確認（ヘッダーなしで 200 OK と新コンテンツが返ること）
+curl -i https://app.example.com/
+# HTTP/2 200 OK ...
+```
+
+---
+
+### 8.5 デプロイロールバックと緊急時対応
+
+万一、**Step 3 のバイパス動作確認で致命的な不具合（DB 接続エラー、API 応答異常等）が検知された場合** は、**メンテナンス画面（Priority 20）を維持したまま** 以下の手順で安全に切り戻しを行います。
+
+```mermaid
+flowchart TD
+    Detect["❌ Step 3 で異常検知"] --> KeepMaint["1. メンテナンス画面 (503) はそのまま維持"]
+    KeepMaint --> RollbackECS["2. ECS サービスを直前の安定タスク定義リビジョンへ更新"]
+    RollbackECS --> WaitStable["3. ロールバックタスクの起動・安定化を待機"]
+    WaitStable --> BypassCheck["4. バイパスヘッダーで旧バージョンの正常稼働を確認"]
+    BypassCheck --> ReleaseMaint["5. メンテナンス画面 (Priority 20) を削除して復旧"]
+```
+
+#### 手動即時ロールバック手順 (CLI)
+```bash
+# 1. 直前の安定リビジョン番号を指定してサービスを更新（例: リビジョン 5）
+STABLE_REVISION=5
+
 aws ecs update-service \
     --cluster ecs-cluster-production \
     --service app-production-service \
-    --task-definition app-production-task:5 \
+    --task-definition app-production-task:${STABLE_REVISION} \
     --force-new-deployment
+
+# 2. ロールバックの安定化を待機
+aws ecs wait services-stable \
+    --cluster ecs-cluster-production \
+    --services app-production-service
+
+# 3. デプロイ担当者によるバイパス確認（旧リビジョンで正常応答するか確認）
+curl -i -H "X-Maintenance-Bypass: SecretBypass2026!" https://app.example.com/api/health
+
+# 4. 正常確認後、メンテナンス画面ルール (Priority 20) を削除してサービス再開
+RULE_20_ARN=$(aws elbv2 describe-rules --listener-arn ${LISTENER_ARN} --query "Rules[?Priority==\`20\`].RuleArn" --output text)
+aws elbv2 delete-rule --rule-arn ${RULE_20_ARN}
 ```
 
 ---
