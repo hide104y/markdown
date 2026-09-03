@@ -51,7 +51,7 @@ flowchart TD
 
 ## 2. アーキテクチャ比較と技術要件
 
-### 2.1 一般的なオンプレミスDSRとGoogle Cloud Passthrough NLBの比較
+### 2.1 一般的なオンプレミスDSR(Direct Server Return)とGoogle Cloud Passthrough NLBの比較
 
 | 項目 | 一般的なオンプレミスDSR（LVS等） | Google Cloud 内部パススルーNLB | 新人向け解説 |
 |---|---|---|---|
