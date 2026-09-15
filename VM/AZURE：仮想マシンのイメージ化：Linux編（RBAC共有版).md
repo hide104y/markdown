@@ -21,7 +21,7 @@ flowchart TD
             ImageVer["イメージバージョン (Image Version)<br/>例: 1.0.0"]
         end
         
-        RBAC["4. RBACロール割り当て<br/>az role assignment create<br/>(Compute Gallery Sharing Image Reader)"]
+        RBAC["4. RBACロール割り当て<br/>az role assignment create<br/>(Compute Gallery Image Reader)"]
     end
 
     subgraph TargetSub["【共有先 サブスクリプション】"]
@@ -52,7 +52,7 @@ flowchart TD
 | **共有単位** | **ユーザー、グループ、サービスプリンシパル (SP)** | サブスクリプション全体 または テナント全体 |
 | **事前設定** | 不要（ギャラリーのデフォルト `Private` のまま利用可能） | ギャラリー作成時に `--permissions Groups` が必須 |
 | **権限管理** | ロール割り当て（最小権限の原則を適用可能） | サブスクリプションID単位の一括許可 |
-| **付与ロール** | `Compute Gallery Sharing Image Reader` または `Reader` | 個別ロール不要（サブスクリプション全体で共有） |
+| **付与ロール** | `Compute Gallery Image Reader` または `Reader` | 個別ロール不要（サブスクリプション全体で共有） |
 | **デプロイ時の参照パス** | 完全修飾リソースID (`/subscriptions/<ソースSubID>/...`) | 共有パス (`/SharedGalleries/<UniqueId>/...`) |
 | **主なユースケース** | **プレビュー申請を待たずに即時共有したい場合**、特定の開発グループやCI/CDパイプラインのみに限定して配布したい場合 | 組織内の特定サブスクリプション全体に対して、ユーザー管理不要でイメージを一括公開したい場合 |
 
@@ -77,9 +77,10 @@ flowchart TD
 | | `--os-state` | ○ | OSの状態。一般化済みVMから作成する場合は `Generalized` を指定。 | `Generalized` | ステップ 3 |
 | | `--hyper-v-generation` | ○ | VMの世代（`V1` または `V2`）。ソースVMの世代と必ず一致させる必要があります。 | `V2` | ステップ 3 |
 | **イメージバージョン** | `$IMAGE_VERSION` | ○ | 作成するイメージのバージョン番号（`メジャー.マイナー.パッチ` 形式の3桁整数）。 | `1.0.0` | ステップ 3, 5 |
-| | `--target-regions` | 任意 | レプリケーション先リージョン、レプリカ数、ストレージアカウントタイプ。 | `japaneast=1=Standard_LRS japanwest=1=Standard_LRS` | ステップ 3 |
+| | `--virtual-machine` | ○ | イメージのソースとなる一般化済み仮想マシンの完全修飾リソースID。 | `/subscriptions/.../virtualMachines/vm-source-linux` | ステップ 3 |
+| | `--target-regions` | 任意 | レプリケーション先リージョン、レプリカ数、ストレージアカウントタイプ（単一リージョン配置なら `--location` で代替可）。 | `japaneast=1=Standard_LRS japanwest=1=Standard_LRS` | ステップ 3 |
 | **RBAC権限設定** | `$ASSIGNEE` | ○ | 共有先でVM作成を行うユーザーのUPN（メールアドレス）、グループID、またはSPオブジェクトID。 | `dev-user@example.com` | ステップ 4 |
-| | `--role` | ○ | 付与するRBACロール名。共有イメージ利用に最適な最小権限ロールを指定。 | `Compute Gallery Sharing Image Reader` | ステップ 4 |
+| | `--role` | ○ | 付与するRBACロール名。共有イメージ利用に最適な最小権限ロールを指定。 | `Compute Gallery Image Reader` | ステップ 4 |
 | **共有先デプロイ** | `$TARGET_SUB_ID` | ○ | 新しくVMをデプロイする共有先サブスクリプションID。 | `11111111-2222-3333-4444-555555555555` | ステップ 5 |
 | | `$TARGET_RG` | ○ | 共有先サブスクリプションで新しくVMを配置するリソースグループ名。 | `rg-production` | ステップ 5 |
 | | `$NEW_VM_NAME` | ○ | 共有イメージから新しくプロビジョニングする仮想マシン名。 | `vm-app-from-shared-image` | ステップ 5 |
@@ -172,7 +173,7 @@ az sig image-definition create `
 ```
 
 ### 3. イメージバージョンの作成 (VMから直接作成)
-停止・一般化したVMから直接イメージバージョン（例: `1.0.0`）を作成します。必要に応じて東日本・西日本などへの複数リージョンレプリケーションも同時に設定可能です。
+停止・一般化したVMから直接イメージバージョン（例: `1.0.0`）を作成します。ソースVMのリソースIDを指定する際は **`--virtual-machine`** を使用します（※ `--managed-image` はマネージドイメージ用のためVM IDを指定するとエラーになります）。
 
 ```powershell
 $IMAGE_VERSION = "1.0.0"
@@ -180,13 +181,22 @@ $IMAGE_VERSION = "1.0.0"
 # VMのリソースIDを取得
 $VM_ID = az vm show --resource-group $SOURCE_RG --name $VM_NAME --query id -o tsv
 
-# イメージバージョンを作成 (japaneast, japanwest に分散配置する場合)
+# 【パターンA】単一リージョン（ソースVMと同じリージョン）に作成する場合（推奨・シンプル）
 az sig image-version create `
   --resource-group $SOURCE_RG `
   --gallery-name $GALLERY_NAME `
   --gallery-image-definition $IMAGE_DEF_NAME `
   --gallery-image-version $IMAGE_VERSION `
-  --managed-image $VM_ID `
+  --virtual-machine $VM_ID `
+  --location $LOCATION
+
+# 【パターンB】複数リージョン（japaneast, japanwest等）にレプリケーション配置する場合
+az sig image-version create `
+  --resource-group $SOURCE_RG `
+  --gallery-name $GALLERY_NAME `
+  --gallery-image-definition $IMAGE_DEF_NAME `
+  --gallery-image-version $IMAGE_VERSION `
+  --virtual-machine $VM_ID `
   --target-regions "${LOCATION}=1=Standard_LRS" "japanwest=1=Standard_LRS"
 ```
 
@@ -196,9 +206,9 @@ az sig image-version create `
 
 共有先サブスクリプションで作業を行う担当者（ユーザー）、チーム（Microsoft Entra ID グループ）、またはCI/CDパイプライン（サービスプリンシパル）に対して、ギャラリーへの読み取り権限を付与します。
 
-### 1. 推奨ロール: `Compute Gallery Sharing Image Reader`
-Azure には Compute Gallery からのイメージ読み取りおよびVM作成に特化した組み込みロール **`Compute Gallery Sharing Image Reader`** が用意されています。
-これにより、不要なリソース情報へのアクセスを遮断し、**最小権限の原則（PoLP）** に則った運用が可能です（※一般的な `Reader（閲覧者）` ロールでも利用可能です）。
+### 1. 推奨ロール: `Compute Gallery Image Reader`
+Azure には Compute Gallery からのイメージ読み取りおよびVM作成に特化した組み込みロール **`Compute Gallery Image Reader`** が用意されています。
+これには `Microsoft.Compute/galleries/images/read` および `Microsoft.Compute/galleries/images/versions/read` アクションが含まれており、不要なリソース情報へのアクセスを遮断し、**最小権限の原則（PoLP）** に則った運用が可能です（※一般的な `Reader（閲覧者）` ロールでも利用可能です）。
 
 ### 2. ロール割り当ての実行
 
@@ -215,7 +225,7 @@ $GALLERY_ID = az sig show `
 # ギャラリーに対して共有イメージ閲覧者ロールを付与
 az role assignment create `
   --assignee $ASSIGNEE `
-  --role "Compute Gallery Sharing Image Reader" `
+  --role "Compute Gallery Image Reader" `
   --scope $GALLERY_ID
 ```
 
@@ -227,10 +237,33 @@ az role assignment create `
 割り当てられたロールが正しく登録されているか確認します。
 
 ```powershell
+# ギャラリーに割り当てられたロール一覧を確認（デフォルトのJSON形式）
+az role assignment list `
+  --scope $GALLERY_ID
+
+# または、特定の対象（$ASSIGNEE）に絞り込んで確認
 az role assignment list `
   --scope $GALLERY_ID `
-  --output table
+  --assignee $ASSIGNEE
 ```
+
+> [!TIP]
+> **`--output table` 実行時の注意点**  
+> `--output table` を指定すると、Azure CLI はユーザー名等の名前解決のために内部で Microsoft Entra ID (Graph API) へ自動照会を行います。実行アカウントにディレクトリ閲覧権限がない場合などにエラーが発生することがあります。  
+> 表形式で確認したい場合は、以下のように `--fill-principal-name false` を付与して名前解決をスキップするか、`--query` で項目を明示指定すると安全に出力できます：
+> ```powershell
+> # 名前解決をスキップして表形式で出力（推奨）
+> az role assignment list `
+>   --scope $GALLERY_ID `
+>   --fill-principal-name false `
+>   --output table
+> 
+> # または必要な項目のみ抽出して表形式で出力
+> az role assignment list `
+>   --scope $GALLERY_ID `
+>   --query "[].{PrincipalId:principalId, Role:roleDefinitionName, Scope:scope}" `
+>   --output table
+> ```
 
 ### 4. (参考) 共有権限の解除手順
 共有を終了したい場合は、割り当てたロールを削除します。
@@ -238,7 +271,7 @@ az role assignment list `
 ```powershell
 az role assignment delete `
   --assignee $ASSIGNEE `
-  --role "Compute Gallery Sharing Image Reader" `
+  --role "Compute Gallery Image Reader" `
   --scope $GALLERY_ID
 ```
 
@@ -292,8 +325,8 @@ az vm create `
 
 ## Azure プロフェッショナルの運用 Tips & ベストプラクティス
 
-1. **`Compute Gallery Sharing Image Reader` の積極活用**
-   - 従来の `Reader（閲覧者）` ロールはリソースグループやギャラリー内のメタデータ全般を広く閲覧できますが、VM作成に必要な最小権限に絞り込みたい場合は、ACG専用の組み込みロール `Compute Gallery Sharing Image Reader` を使用するのがセキュリティ監査上のベストプラクティスです。
+1. **`Compute Gallery Image Reader` の積極活用**
+   - 従来の `Reader（閲覧者）` ロールはリソースグループやギャラリー内のメタデータ全般を広く閲覧できますが、VM作成に必要な最小権限に絞り込みたい場合は、ACG専用の組み込みロール `Compute Gallery Image Reader` を使用するのがセキュリティ監査上のベストプラクティスです。
 2. **Microsoft Entra ID グループによるアクセス一元管理**
    - 個別のユーザーや開発者アカウントに直接ロールを付与するのではなく、「`grp-golden-image-users`」のようなセキュリティグループを作成し、そのグループに対してロールを付与します。メンバーの異動や退職時の権限管理がEntra ID側で完結し、運用負荷を大幅に削減できます。
 3. **Hyper-V Generation (世代) の整合性**

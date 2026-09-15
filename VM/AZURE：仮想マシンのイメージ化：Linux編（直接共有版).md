@@ -74,7 +74,8 @@ flowchart TD
 | | `--os-state` | ○ | OSの状態。一般化済みVMから作成する場合は `Generalized` を指定。 | `Generalized` | ステップ 3 |
 | | `--hyper-v-generation` | ○ | VMの世代（`V1` または `V2`）。ソースVMの世代と必ず一致させる必要があります。 | `V2` | ステップ 3 |
 | **イメージバージョン** | `$IMAGE_VERSION` | ○ | 作成するイメージのバージョン番号（`メジャー.マイナー.パッチ` 形式の3桁整数）。 | `1.0.0` | ステップ 3, 5 |
-| | `--target-regions` | 任意 | レプリケーション先リージョン、レプリカ数、ストレージアカウントタイプ。 | `japaneast=1=Standard_LRS japanwest=1=Standard_LRS` | ステップ 3 |
+| | `--virtual-machine` | ○ | イメージのソースとなる一般化済み仮想マシンの完全修飾リソースID。 | `/subscriptions/.../virtualMachines/vm-source-linux` | ステップ 3 |
+| | `--target-regions` | 任意 | レプリケーション先リージョン、レプリカ数、ストレージアカウントタイプ（単一リージョン配置なら `--location` で代替可）。 | `japaneast=1=Standard_LRS japanwest=1=Standard_LRS` | ステップ 3 |
 | **共有設定** | `$TARGET_SUB_ID` | ○ | ギャラリーを共有・公開する先のサブスクリプションID（UUID形式）。 | `11111111-2222-3333-4444-555555555555` | ステップ 4, 5 |
 | **共有先デプロイ** | `$GALLERY_UNIQUE_ID` | ○ | 共有先で `az sig list-shared` を実行した際にシステムから返却される一意な識別子。 | `gal_shared_linux-a1b2c3d4-e5f6-7890-1234-56789abcdef0` | ステップ 5 |
 | | `$TARGET_RG` | ○ | 共有先サブスクリプションで新しくVMを配置するリソースグループ名。 | `rg-production` | ステップ 5 |
@@ -143,7 +144,6 @@ Azure Compute Gallery では以下の3層構造でイメージを管理します
 az feature register --namespace Microsoft.Compute --name SIGSharing
 
 # 2. 登録状態の確認 (RegistrationState が "Registered" になるまで確認)
-# ※非同期処理のため、数分から十数分程度かかる場合があります
 az feature show --namespace Microsoft.Compute --name SIGSharing --query "properties.state" -o tsv
 
 # 3. 状態が "Registered" になったら、プロバイダーを再登録してサブスクリプションに設定を反映
@@ -152,6 +152,9 @@ az provider register --namespace Microsoft.Compute
 
 > [!NOTE]
 > `az feature register` の登録処理はバックグラウンドで行われます。状態が `Pending` から `Registered` に変わるのを確認してから、必ず `az provider register` を実行してください。
+
+> [!NOTE]
+> ※現在、プレビュー機能のため、フォーム申請が必要（https://forms.cloud.microsoft/pages/responsepage.aspx?id=v4j5cvGGr0GRqy180BHbR_mNBWuIdjREixU93yX0U7tUMjRSNVRJT05VSlkyUzUyRTFBOTc5R0E1My4u&route=shorturl）
 
 ### 2. ギャラリーの作成 (`--permissions Groups` を指定)
 直接共有 (`az sig share add`) を利用するため、`--permissions Groups` を指定して作成します。
@@ -188,7 +191,7 @@ az sig image-definition create `
 ```
 
 ### 4. イメージバージョンの作成 (VMから直接作成)
-停止・一般化したVMから直接イメージバージョン（例: `1.0.0`）を作成します。必要に応じて東日本・西日本などへの複数リージョンレプリケーションも同時に設定可能です。
+停止・一般化したVMから直接イメージバージョン（例: `1.0.0`）を作成します。ソースVMのリソースIDを指定する際は **`--virtual-machine`** を使用します（※ `--managed-image` はマネージドイメージ用のためVM IDを指定するとエラーになります）。
 
 ```powershell
 $IMAGE_VERSION = "1.0.0"
@@ -196,13 +199,22 @@ $IMAGE_VERSION = "1.0.0"
 # VMのリソースIDを取得
 $VM_ID = az vm show --resource-group $SOURCE_RG --name $VM_NAME --query id -o tsv
 
-# イメージバージョンを作成 (japaneast, japanwest に分散配置する場合)
+# 【パターンA】単一リージョン（ソースVMと同じリージョン）に作成する場合（推奨・シンプル）
 az sig image-version create `
   --resource-group $SOURCE_RG `
   --gallery-name $GALLERY_NAME `
   --gallery-image-definition $IMAGE_DEF_NAME `
   --gallery-image-version $IMAGE_VERSION `
-  --managed-image $VM_ID `
+  --virtual-machine $VM_ID `
+  --location $LOCATION
+
+# 【パターンB】複数リージョン（japaneast, japanwest等）にレプリケーション配置する場合
+az sig image-version create `
+  --resource-group $SOURCE_RG `
+  --gallery-name $GALLERY_NAME `
+  --gallery-image-definition $IMAGE_DEF_NAME `
+  --gallery-image-version $IMAGE_VERSION `
+  --virtual-machine $VM_ID `
   --target-regions "${LOCATION}=1=Standard_LRS" "japanwest=1=Standard_LRS"
 ```
 
