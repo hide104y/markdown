@@ -57,28 +57,28 @@ flowchart TD
 
 ## 事前準備：パラメータシート
 
-作業を実施する前に、以下の設計パラメータをあらかじめ検討・決定しておきます。後続のコマンド例では、このシートの値を変数として使用します。
+作業を実施する前に、以下の設計パラメータをあらかじめ検討・決定しておきます。後続のコマンド例では、このシートの値を変数として使用します（Windows PowerShell環境での実行を前提とします）。
 
 | 分類 | 変数名 / 引数名 | 必須 | 解説および決定時の留意点 | 設定値の例 | 該当ステップ |
 | :--- | :--- | :---: | :--- | :--- | :---: |
-| **ソース環境** | `SOURCE_RG` | ○ | イメージ作成元VMおよびギャラリーを配置するリソースグループ名。 | `rg-image-source` | ステップ 2, 3, 4 |
-| | `VM_NAME` | ○ | イメージの元となる既存Linux仮想マシン名（作業対象）。 | `vm-source-linux` | ステップ 2, 3 |
-| | `LOCATION` | ○ | ソースVMが存在し、ギャラリーのプライマリリソースを作成するリージョン名。 | `japaneast` (東日本) | ステップ 2, 3, 5 |
-| **ギャラリー設計** | `GALLERY_NAME` | ○ | Azure Compute Gallery名（英数字・アンダースコア・ピリオド使用可、最大80文字）。 | `gal_shared_linux` | ステップ 3, 4 |
+| **ソース環境** | `$SOURCE_RG` | ○ | イメージ作成元VMおよびギャラリーを配置するリソースグループ名。 | `rg-image-source` | ステップ 2, 3, 4 |
+| | `$VM_NAME` | ○ | イメージの元となる既存Linux仮想マシン名（作業対象）。 | `vm-source-linux` | ステップ 2, 3 |
+| | `$LOCATION` | ○ | ソースVMが存在し、ギャラリーのプライマリリソースを作成するリージョン名。 | `japaneast` (東日本) | ステップ 2, 3, 5 |
+| **ギャラリー設計** | `$GALLERY_NAME` | ○ | Azure Compute Gallery名（英数字・アンダースコア・ピリオド使用可、最大80文字）。 | `gal_shared_linux` | ステップ 3, 4 |
 | | `--permissions` | ○ | ギャラリーの共有権限。直接共有（`az sig share add`）を行う場合は `Groups` が必須。 | `Groups` | ステップ 3 |
-| **イメージ定義** | `IMAGE_DEF_NAME` | ○ | ギャラリー内でイメージの仕様を論理的にまとめる定義名（英数字・ハイフン・ピリオド）。 | `Ubuntu2204-GoldenImage` | ステップ 3, 5 |
+| **イメージ定義** | `$IMAGE_DEF_NAME` | ○ | ギャラリー内でイメージの仕様を論理的にまとめる定義名（英数字・ハイフン・ピリオド）。 | `Ubuntu2204-GoldenImage` | ステップ 3, 5 |
 | | `--publisher` | ○ | 発行組織や部門名。社名やチーム名などを指定。 | `MyCompany` | ステップ 3 |
 | | `--offer` | ○ | イメージの製品名やOSディストリビューション名。 | `UbuntuServer` | ステップ 3 |
 | | `--sku` | ○ | OSのバージョンやエディションなどの詳細識別子。 | `22_04-lts` | ステップ 3 |
 | | `--os-type` | ○ | OSの種類（`Linux` または `Windows`）。 | `Linux` | ステップ 3 |
 | | `--os-state` | ○ | OSの状態。一般化済みVMから作成する場合は `Generalized` を指定。 | `Generalized` | ステップ 3 |
 | | `--hyper-v-generation` | ○ | VMの世代（`V1` または `V2`）。ソースVMの世代と必ず一致させる必要があります。 | `V2` | ステップ 3 |
-| **イメージバージョン** | `IMAGE_VERSION` | ○ | 作成するイメージのバージョン番号（`メジャー.マイナー.パッチ` 形式の3桁整数）。 | `1.0.0` | ステップ 3, 5 |
+| **イメージバージョン** | `$IMAGE_VERSION` | ○ | 作成するイメージのバージョン番号（`メジャー.マイナー.パッチ` 形式の3桁整数）。 | `1.0.0` | ステップ 3, 5 |
 | | `--target-regions` | 任意 | レプリケーション先リージョン、レプリカ数、ストレージアカウントタイプ。 | `japaneast=1=Standard_LRS japanwest=1=Standard_LRS` | ステップ 3 |
-| **共有設定** | `TARGET_SUB_ID` | ○ | ギャラリーを共有・公開する先のサブスクリプションID（UUID形式）。 | `11111111-2222-3333-4444-555555555555` | ステップ 4, 5 |
-| **共有先デプロイ** | `GALLERY_UNIQUE_ID` | ○ | 共有先で `az sig list-shared` を実行した際にシステムから返却される一意な識別子。 | `gal_shared_linux-a1b2c3d4-e5f6-7890-1234-56789abcdef0` | ステップ 5 |
-| | `TARGET_RG` | ○ | 共有先サブスクリプションで新しくVMを配置するリソースグループ名。 | `rg-production` | ステップ 5 |
-| | `NEW_VM_NAME` | ○ | 共有イメージから新しくプロビジョニングする仮想マシン名。 | `vm-app-from-shared-image` | ステップ 5 |
+| **共有設定** | `$TARGET_SUB_ID` | ○ | ギャラリーを共有・公開する先のサブスクリプションID（UUID形式）。 | `11111111-2222-3333-4444-555555555555` | ステップ 4, 5 |
+| **共有先デプロイ** | `$GALLERY_UNIQUE_ID` | ○ | 共有先で `az sig list-shared` を実行した際にシステムから返却される一意な識別子。 | `gal_shared_linux-a1b2c3d4-e5f6-7890-1234-56789abcdef0` | ステップ 5 |
+| | `$TARGET_RG` | ○ | 共有先サブスクリプションで新しくVMを配置するリソースグループ名。 | `rg-production` | ステップ 5 |
+| | `$NEW_VM_NAME` | ○ | 共有イメージから新しくプロビジョニングする仮想マシン名。 | `vm-app-from-shared-image` | ステップ 5 |
 | | `--size` | ○ | 新規作成するVMのインスタンスサイズ（スペック要件に合わせて選定）。 | `Standard_D2s_v5` | ステップ 5 |
 | | `--admin-username` | ○ | 新規Linux VMの管理者ユーザー名（初期ログインアカウント）。 | `azureuser` | ステップ 5 |
 
@@ -86,7 +86,7 @@ flowchart TD
 
 ## ステップ 1: 仮想マシン内のプロビジョニング解除（一般化準備）
 
-イメージ化を行うLinux VMにSSHログインし、ユーザー固有の情報、SSHホストキー、ネットワークキャッシュ等を消去して一般化（Generalize）します。
+イメージ化を行うLinux VMにSSHログインし、ユーザー固有の情報、SSHホストキー、ネットワークキャッシュ等を消去して一般化（Generalize）します（※本ステップは対象Linux VM内部のシェルで実行します）。
 
 > [!CAUTION]
 > **取り消し不可能な操作です**  
@@ -103,22 +103,22 @@ exit
 
 ## ステップ 2: 仮想マシンの停止・割り当て解除と一般化
 
-ローカル端末（またはAzure Cloud Shell）からAzure CLIを実行し、VMを確実に停止・割り当て解除して、Azure基盤側で「一般化済み」ステータスに変更します。
+Windows端末のPowerShellプロンプトからAzure CLIを実行し、VMを確実に停止・割り当て解除して、Azure基盤側で「一般化済み」ステータスに変更します。
 
-```bash
+```powershell
 # パラメータ設定（パラメータシートの値を設定）
-SOURCE_RG="rg-image-source"
-VM_NAME="vm-source-linux"
-LOCATION="japaneast"
+$SOURCE_RG = "rg-image-source"
+$VM_NAME = "vm-source-linux"
+$LOCATION = "japaneast"
 
 # 1. 仮想マシンの停止と割り当て解除 (deallocate)
-az vm deallocate \
-  --resource-group $SOURCE_RG \
+az vm deallocate `
+  --resource-group $SOURCE_RG `
   --name $VM_NAME
 
 # 2. 仮想マシンを一般化 (generalize)
-az vm generalize \
-  --resource-group $SOURCE_RG \
+az vm generalize `
+  --resource-group $SOURCE_RG `
   --name $VM_NAME
 ```
 
@@ -135,57 +135,75 @@ Azure Compute Gallery では以下の3層構造でイメージを管理します
 > **プロのベストプラクティス**  
 > 従来の `az image create` による中間マネージドイメージの作成は**不要**です。停止・一般化した仮想マシン（VM）のリソースIDを直接指定してイメージバージョンを作成できます。これにより、不要なリソース管理の手間とストレージコストを削減できます。
 
-### 1. ギャラリーの作成 (`--permissions Groups` を指定)
+### 1. 事前準備: SIGSharing 機能の登録と確認
+直接共有（`--permissions Groups`）を利用するには、サブスクリプションで `Microsoft.Compute` リソースプロバイダーの `SIGSharing` 機能が登録されている必要があります。未登録のままギャラリーを作成しようとすると、`Subscription <Subscription-ID> is not registered for feature Microsoft.Compute/SIGSharing` というエラーが発生します。
+
+```powershell
+# 1. SIGSharing 機能の登録申請
+az feature register --namespace Microsoft.Compute --name SIGSharing
+
+# 2. 登録状態の確認 (RegistrationState が "Registered" になるまで確認)
+# ※非同期処理のため、数分から十数分程度かかる場合があります
+az feature show --namespace Microsoft.Compute --name SIGSharing --query "properties.state" -o tsv
+
+# 3. 状態が "Registered" になったら、プロバイダーを再登録してサブスクリプションに設定を反映
+az provider register --namespace Microsoft.Compute
+```
+
+> [!NOTE]
+> `az feature register` の登録処理はバックグラウンドで行われます。状態が `Pending` から `Registered` に変わるのを確認してから、必ず `az provider register` を実行してください。
+
+### 2. ギャラリーの作成 (`--permissions Groups` を指定)
 直接共有 (`az sig share add`) を利用するため、`--permissions Groups` を指定して作成します。
 
-```bash
-GALLERY_NAME="gal_shared_linux"
+```powershell
+$GALLERY_NAME = "gal_shared_linux"
 
 # 直接共有(Groups)を有効化したギャラリーを作成
-az sig create \
-  --resource-group $SOURCE_RG \
-  --gallery-name $GALLERY_NAME \
-  --location $LOCATION \
+az sig create `
+  --resource-group $SOURCE_RG `
+  --gallery-name $GALLERY_NAME `
+  --location $LOCATION `
   --permissions Groups
 ```
 *(※既存のギャラリーがある場合は、`az sig update -g $SOURCE_RG -r $GALLERY_NAME --permissions Groups` で後から変更可能です)*
 
-### 2. イメージ定義の作成
+### 3. イメージ定義の作成
 OSの仕様（Linux、一般化済み、第2世代VMなど）を定義します。
 
-```bash
-IMAGE_DEF_NAME="Ubuntu2204-GoldenImage"
+```powershell
+$IMAGE_DEF_NAME = "Ubuntu2204-GoldenImage"
 
-az sig image-definition create \
-  --resource-group $SOURCE_RG \
-  --gallery-name $GALLERY_NAME \
-  --gallery-image-definition $IMAGE_DEF_NAME \
-  --publisher "MyCompany" \
-  --offer "UbuntuServer" \
-  --sku "22_04-lts" \
-  --os-type Linux \
-  --os-state Generalized \
-  --hyper-v-generation V2 \
+az sig image-definition create `
+  --resource-group $SOURCE_RG `
+  --gallery-name $GALLERY_NAME `
+  --gallery-image-definition $IMAGE_DEF_NAME `
+  --publisher "MyCompany" `
+  --offer "UbuntuServer" `
+  --sku "22_04-lts" `
+  --os-type Linux `
+  --os-state Generalized `
+  --hyper-v-generation V2 `
   --location $LOCATION
 ```
 
-### 3. イメージバージョンの作成 (VMから直接作成)
+### 4. イメージバージョンの作成 (VMから直接作成)
 停止・一般化したVMから直接イメージバージョン（例: `1.0.0`）を作成します。必要に応じて東日本・西日本などへの複数リージョンレプリケーションも同時に設定可能です。
 
-```bash
-IMAGE_VERSION="1.0.0"
+```powershell
+$IMAGE_VERSION = "1.0.0"
 
 # VMのリソースIDを取得
-VM_ID=$(az vm show --resource-group $SOURCE_RG --name $VM_NAME --query id -o tsv)
+$VM_ID = az vm show --resource-group $SOURCE_RG --name $VM_NAME --query id -o tsv
 
 # イメージバージョンを作成 (japaneast, japanwest に分散配置する場合)
-az sig image-version create \
-  --resource-group $SOURCE_RG \
-  --gallery-name $GALLERY_NAME \
-  --gallery-image-definition $IMAGE_DEF_NAME \
-  --gallery-image-version $IMAGE_VERSION \
-  --managed-image $VM_ID \
-  --target-regions "$LOCATION=1=Standard_LRS" "japanwest=1=Standard_LRS"
+az sig image-version create `
+  --resource-group $SOURCE_RG `
+  --gallery-name $GALLERY_NAME `
+  --gallery-image-definition $IMAGE_DEF_NAME `
+  --gallery-image-version $IMAGE_VERSION `
+  --managed-image $VM_ID `
+  --target-regions "${LOCATION}=1=Standard_LRS" "japanwest=1=Standard_LRS"
 ```
 
 ---
@@ -209,13 +227,13 @@ flowchart LR
 ### 1. サブスクリプションIDを指定して直接共有を実行
 `--subscription-ids` に共有先となるサブスクリプションのIDを指定します（複数指定可能）。
 
-```bash
-TARGET_SUB_ID="11111111-2222-3333-4444-555555555555"
+```powershell
+$TARGET_SUB_ID = "11111111-2222-3333-4444-555555555555"
 
 # 共有先サブスクリプションを追加
-az sig share add \
-  --resource-group $SOURCE_RG \
-  --gallery-name $GALLERY_NAME \
+az sig share add `
+  --resource-group $SOURCE_RG `
+  --gallery-name $GALLERY_NAME `
   --subscription-ids $TARGET_SUB_ID
 ```
 *(※別テナントへ共有したい場合は、`--tenant-ids <テナントID>` を指定して共有することも可能です)*
@@ -223,28 +241,28 @@ az sig share add \
 ### 2. 共有状態の確認
 ギャラリーの共有プロファイルを確認し、対象サブスクリプションが登録されているか検証します。
 
-```bash
+```powershell
 # 共有プロファイルと共有先リストの確認
-az sig show \
-  --resource-group $SOURCE_RG \
-  --gallery-name $GALLERY_NAME \
-  --query "sharingProfile" \
+az sig show `
+  --resource-group $SOURCE_RG `
+  --gallery-name $GALLERY_NAME `
+  --query "sharingProfile" `
   --output json
 ```
 
 ### 3. (参考) 共有の解除手順
 共有を取り消したい場合は、以下のコマンドを使用します。
 
-```bash
+```powershell
 # 特定のサブスクリプションの共有を解除
-az sig share remove \
-  --resource-group $SOURCE_RG \
-  --gallery-name $GALLERY_NAME \
+az sig share remove `
+  --resource-group $SOURCE_RG `
+  --gallery-name $GALLERY_NAME `
   --subscription-ids $TARGET_SUB_ID
 
 # 直接共有を完全にリセットして非公開 (Private) に戻す
-az sig share reset \
-  --resource-group $SOURCE_RG \
+az sig share reset `
+  --resource-group $SOURCE_RG `
   --gallery-name $GALLERY_NAME
 ```
 
@@ -255,17 +273,17 @@ az sig share reset \
 共有先のサブスクリプションでは、共有されたギャラリーの一意な名前（Unique ID）を取得し、`/SharedGalleries/...` 形式のパスを指定してVMをプロビジョニングします。
 
 ### 1. 共有先サブスクリプションへコンテキスト切り替え
-```bash
+```powershell
 az account set --subscription $TARGET_SUB_ID
 ```
 
 ### 2. 共有されたギャラリーの検出
 共有されたギャラリーの一覧を取得し、`uniqueId` を確認します。
 
-```bash
+```powershell
 # 共有されているギャラリーを検索
-az sig list-shared \
-  --location $LOCATION \
+az sig list-shared `
+  --location $LOCATION `
   --output table
 
 # 出力例:
@@ -275,35 +293,35 @@ az sig list-shared \
 ```
 
 ### 3. 共有ギャラリー内のイメージ定義を確認
-```bash
-GALLERY_UNIQUE_ID="gal_shared_linux-a1b2c3d4-e5f6-7890-1234-56789abcdef0"
+```powershell
+$GALLERY_UNIQUE_ID = "gal_shared_linux-a1b2c3d4-e5f6-7890-1234-56789abcdef0"
 
-az sig image-definition list-shared \
-  --gallery-unique-name $GALLERY_UNIQUE_ID \
-  --location $LOCATION \
+az sig image-definition list-shared `
+  --gallery-unique-name $GALLERY_UNIQUE_ID `
+  --location $LOCATION `
   --output table
 ```
 
 ### 4. 仮想マシンのデプロイ
 `--image` パラメータに直接共有パス `/SharedGalleries/<UniqueId>/Images/<ImageDef>/Versions/<Version>` を指定してVMを作成します。
 
-```bash
-TARGET_RG="rg-production"
-NEW_VM_NAME="vm-app-from-shared-image"
+```powershell
+$TARGET_RG = "rg-production"
+$NEW_VM_NAME = "vm-app-from-shared-image"
 
-az vm create \
-  --resource-group $TARGET_RG \
-  --name $NEW_VM_NAME \
-  --location $LOCATION \
-  --image "/SharedGalleries/${GALLERY_UNIQUE_ID}/Images/${IMAGE_DEF_NAME}/Versions/1.0.0" \
-  --admin-username azureuser \
-  --generate-ssh-keys \
+az vm create `
+  --resource-group $TARGET_RG `
+  --name $NEW_VM_NAME `
+  --location $LOCATION `
+  --image "/SharedGalleries/$GALLERY_UNIQUE_ID/Images/$IMAGE_DEF_NAME/Versions/1.0.0" `
+  --admin-username azureuser `
+  --generate-ssh-keys `
   --size Standard_D2s_v5
 ```
 
 > [!TIP]
 > - **最新バージョンの自動デプロイ**: バージョン番号 `1.0.0` の代わりに `latest` を指定すると、ギャラリー内で公開されている最新イメージバージョンが自動的に適用されます。
->   - `--image "/SharedGalleries/${GALLERY_UNIQUE_ID}/Images/${IMAGE_DEF_NAME}/Versions/latest"`
+>   - `--image "/SharedGalleries/$GALLERY_UNIQUE_ID/Images/$IMAGE_DEF_NAME/Versions/latest"`
 > - **同一テナント内の完全修飾リソースID指定**: 同一テナント内であれば、ソース側のリソースID (`/subscriptions/<ソースSubID>/resourceGroups/...`) をそのまま指定して作成することも可能です。
 
 ---
