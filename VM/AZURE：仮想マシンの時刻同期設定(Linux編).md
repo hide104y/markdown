@@ -172,7 +172,8 @@ ls -l /dev/ptp_hyperv
 
 ### 4.1 設定ファイル (`/etc/chrony.conf`)
 
-既存の `/etc/chrony.conf` のバックアップを取得した後、以下の内容に編集します。
+Azure VM (RHEL 9.7) の標準イメージには、初期状態で Hyper-V PTP の参照設定が含まれています。  
+オリジナルの設定ファイルの項目順序を維持したまま、**不要なディレクティブをコメントアウトし、`refclock` 行末に `stratum 2` を追記するだけ**で推奨設定へ移行できます。
 
 ```bash
 # バックアップ取得
@@ -180,48 +181,84 @@ sudo cp -p /etc/chrony.conf /etc/chrony.conf.bak.$(date +%Y%m%d)
 sudo vi /etc/chrony.conf
 ```
 
-**`/etc/chrony.conf` 設定内容:**
+**`/etc/chrony.conf` 推奨設定内容（オリジナル順序準拠）:**
 
 ```text
 # ==============================================================================
-# Azure Host PTP (Precision Time Protocol) Configuration
+# Azure VM (RHEL 9.x) chrony.conf 推奨設定
+# ※ Azure標準の項目順序に完全準拠。不要項目はコメントアウトして無効化しています。
 # ==============================================================================
-# Azure物理ホストのPTPデバイスを参照
-# poll 3: 2^3 = 8秒ごとに定期問い合わせ
-# dpoll -2: 差分ポーリングレート
-# stratum 2: ホストをStratum 2として扱い、VM自身はStratum 3として動作
+
+# [1] Azure物理ホストのPTPデバイスを参照
+# 推奨変更: 末尾に 'stratum 2' を追記 (VM自身をStratum 3として動作させ階層構造を安定化)
 refclock PHC /dev/ptp_hyperv poll 3 dpoll -2 offset 0 stratum 2
 
-# ==============================================================================
-# 既存のNTPソースの無効化
-# ==============================================================================
-# オンプレミスNTPサーバー指定や外部デフォルトプールを無効化
-# (完全閉域環境の場合はすべてコメントアウト)
-# pool 2.rhel.pool.ntp.org iburst
-# server 10.x.x.x iburst
+# [2] DHCP経由で配布されるNTPソースの自動読み込みディレクトリ
+# 不要化: 不意な外部NTP設定の混入やソース競合を防ぐためコメントアウト
+# sourcedir /run/chrony-dhcp
 
-# ==============================================================================
-# クロック調整・システム設定
-# ==============================================================================
-# クロックドリフト（周波数誤差）の保存先
+# [3] クロックドリフト (周波数誤差) の保存先 (必須)
 driftfile /var/lib/chrony/drift
 
-# 起動時の初期同期のみ1秒以上のズレがあればステップ同期
-# 稼働中はスルー同期のみ行い、時刻の巻き戻り・ジャンプを防止
+# [4] 起動時の初期同期のみ1秒以上のズレがあればステップ同期、定常時はスルー同期 (必須)
 makestep 1.0 3
 
-# カーネルのリアルタイムクロック (RTC) への定期同期
+# [5] カーネルRTC (リアルタイムクロック) への定期同期 (必須)
 rtcsync
 
-# ログディレクトリ
-logdir /var/log/chrony
+# [6] NTP対称鍵・認証キーファイル
+# 不要化: PTPローカル同期環境では認証鍵は不要のためコメントアウト
+# keyfile /etc/chrony.keys
 
-# RHEL 9の追加設定ディレクトリ
-include /etc/chrony.d/*.conf
+# [7] NTS (Network Time Security) のキードリフト保存先
+# 不要化: NTS認証を使用しないためコメントアウト
+# ntsdumpdir /var/lib/chrony
+
+# [8] システムうるう秒テーブル (right/UTC) の参照
+# 不要化: Azure物理ホスト側でうるう秒が適切に処理・平滑化されるためコメントアウト
+# leapsectz right/UTC
+
+# [9] ログディレクトリ
+logdir /var/log/chrony
 ```
 
+#### オリジナルからの変更点一覧 (RHEL 9.7)
+
+| 行順 | 設定項目 (ディレクティブ) | オリジナル | 推奨設定 | 変更内容・理由 |
+| :---: | :--- | :--- | :--- | :--- |
+| 1 | `refclock` | `... offset 0` | `... offset 0 stratum 2` | **`stratum 2` を追記**。ホストをStratum 2、VMをStratum 3として階層を明示。 |
+| 2 | `sourcedir /run/chrony-dhcp` | 有効 | **`# ` コメントアウト** | DHCPによる意図しないNTPサーバー自動追加を無効化。 |
+| 3 | `driftfile` | 有効 | そのまま維持 | クロック周波数の補正値保存に必須。 |
+| 4 | `makestep 1.0 3` | 有効 | そのまま維持 | 起動初期のみステップ補正、稼働中の時刻逆行を防止。 |
+| 5 | `rtcsync` | 有効 | そのまま維持 | カーネルからハードウェアクロック(RTC)への定期同期。 |
+| 6 | `keyfile /etc/chrony.keys` | 有効 | **`# ` コメントアウト** | PHCローカル同期では認証キーを使用しないため不要。 |
+| 7 | `ntsdumpdir /var/lib/chrony`| 有効 | **`# ` コメントアウト** | NTS (Network Time Security) を使用しないため不要。 |
+| 8 | `leapsectz right/UTC` | 有効 | **`# ` コメントアウト** | Azureホスト側でうるう秒が吸収・平滑化されるため不要。 |
+| 9 | `logdir` | 有効 | そのまま維持 | ログディレクトリ。 |
+
+> [!TIP]
+> **ワンライナーでの一括適用手順 (RHEL 9.x):**  
+> 手動で `vi` 編集する代わりに、以下の `sed` コマンドでオリジナルから推奨設定へ一括変換することも可能です。
+> ```bash
+> # バックアップ取得
+> sudo cp -p /etc/chrony.conf /etc/chrony.conf.bak.$(date +%Y%m%d)
+> 
+> # 不要項目のコメントアウトと stratum 2 の追記
+> sudo sed -i \
+>   -e 's/^refclock PHC \/dev\/ptp_hyperv poll 3 dpoll -2 offset 0$/refclock PHC \/dev\/ptp_hyperv poll 3 dpoll -2 offset 0 stratum 2/' \
+>   -e 's/^sourcedir \/run\/chrony-dhcp/# sourcedir \/run\/chrony-dhcp/' \
+>   -e 's/^keyfile \/etc\/chrony.keys/# keyfile \/etc\/chrony.keys/' \
+>   -e 's/^ntsdumpdir \/var\/lib\/chrony/# ntsdumpdir \/var\/lib\/chrony/' \
+>   -e 's/^leapsectz right\/UTC/# leapsectz right\/UTC/' \
+>   /etc/chrony.conf
+> 
+> # 差分確認
+> diff -u /etc/chrony.conf.bak.$(date +%Y%m%d) /etc/chrony.conf
+> ```
+
 > [!NOTE]
-> インターネット通信が可能で、AzureホストPTPの予備（フォールバック）として外部プールを残したい場合は、`pool 2.rhel.pool.ntp.org iburst` を有効のままにして構いません。`stratum 2` が指定されているPTPクロックが最優先ソースとして自動選定されます。
+> **本VMを社内NTPサーバーとして運用し他サーバーへ時刻配信する場合:**  
+> 本VM自身をVNet内やオンプレミスの古いOSサーバー・ネットワーク機器等に対するNTPサーバーとして動作させる場合は、追加のクライアント許可（`allow`）やうるう秒スミアリング設定が必要です。詳細は [第8章](#8-オプション-自vmをvnet内のntpサーバーとして運用する場合の設定-古いos機器への時刻配信) を参照してください。
 
 ### 4.2 反映と有効化 (RHEL 9.x)
 
@@ -254,7 +291,8 @@ sudo systemctl mask systemd-timesyncd
 
 ### 5.2 設定ファイル (`/etc/chrony/chrony.conf`)
 
-既存ファイルのバックアップを取得後、編集します。
+Azure VM (Ubuntu 24.04) の標準イメージでも、設定ファイルの末尾（12行目）に Hyper-V PTP の参照設定が含まれています。  
+オリジナルの設定ファイルの項目順序を維持したまま、**不要なディレクティブをコメントアウトし、末尾の `refclock` 行に `stratum 2` を追記するだけ**で推奨設定へ移行できます。
 
 ```bash
 # バックアップ取得
@@ -262,49 +300,100 @@ sudo cp -p /etc/chrony/chrony.conf /etc/chrony/chrony.conf.bak.$(date +%Y%m%d)
 sudo vi /etc/chrony/chrony.conf
 ```
 
-**`/etc/chrony/chrony.conf` 設定内容:**
+**`/etc/chrony/chrony.conf` 推奨設定内容（オリジナル順序準拠）:**
 
 ```text
 # ==============================================================================
-# Azure Host PTP (Precision Time Protocol) Configuration
+# Azure VM (Ubuntu 24.04) chrony.conf 推奨設定
+# ※ Azure標準の項目順序に完全準拠。不要項目はコメントアウトして無効化しています。
 # ==============================================================================
-# Azure物理ホストのPTPデバイスを参照 (8秒ごとに定期問い合わせ)
-refclock PHC /dev/ptp_hyperv poll 3 dpoll -2 offset 0 stratum 2
 
-# ==============================================================================
-# 既存の外部プール / オンプレミスNTPの無効化
-# ==============================================================================
-# (完全閉域環境の場合はコメントアウト)
-# pool ntp.ubuntu.com iburst maxsources 4
-# pool 0.ubuntu.pool.ntp.org iburst maxsources 1
-# pool 1.ubuntu.pool.ntp.org iburst maxsources 1
-# pool 2.ubuntu.pool.ntp.org iburst maxsources 2
+# [1] 追加設定ディレクトリ (.conf)
+# 不要化: 設定を一元管理し、予期せぬ外部設定ファイルの読み込みを防ぐためコメントアウト
+# confdir /etc/chrony/conf.d
 
-# ==============================================================================
-# 一般設定 (Ubuntu 24.04 標準)
-# ==============================================================================
-# 認証キーファイル
-keyfile /etc/chrony/chrony.keys
+# [2] DHCP経由で配布されるNTPソースの自動読み込みディレクトリ
+# 不要化: DHCPからの不意な外部NTP混入・競合を防ぐためコメントアウト
+# sourcedir /run/chrony-dhcp
 
-# クロックドリフトの保存先
+# [3] 追加NTPソース設定ディレクトリ (sources.d)
+# 不要化: 意図しない外部ソース読み込みを防ぐためコメントアウト
+# sourcedir /etc/chrony/sources.d
+
+# [4] NTP対称鍵・認証キーファイル
+# 不要化: PTPローカル同期環境では認証鍵は不要のためコメントアウト
+# keyfile /etc/chrony/chrony.keys
+
+# [5] クロックドリフト (周波数誤差) の保存先 (必須)
 driftfile /var/lib/chrony/chrony.drift
 
-# ログディレクトリ
+# [6] NTS (Network Time Security) のキードリフト保存先
+# 不要化: NTS認証を使用しないためコメントアウト
+# ntsdumpdir /var/lib/chrony
+
+# [7] ログディレクトリ
 logdir /var/log/chrony
 
-# 最大許容スキュー
+# [8] 周波数推定における最大許容スキュー (Ubuntu標準: 100.0)
 maxupdateskew 100.0
 
-# カーネルRTCへの同期
+# [9] カーネルRTC (リアルタイムクロック) への定期同期 (必須)
 rtcsync
 
-# 起動初期のみステップ同期、稼働中はスルー同期
+# [10] 起動初期の3回のみ1秒以上のズレがあればステップ同期、定常時はスルー同期 (必須)
 makestep 1 3
 
-# 追加設定ソースディレクトリ
-sourcedir /run/chrony-dhcp
-sourcedir /etc/chrony/sources.d
+# [11] システムうるう秒テーブル (right/UTC) の参照
+# 不要化: Azure物理ホスト側でうるう秒が適切に処理・平滑化されるためコメントアウト
+# leapsectz right/UTC
+
+# [12] Azure物理ホストのPTPデバイスを参照 (8秒ごとに定期問い合わせ)
+# 推奨変更: 末尾に 'stratum 2' を追記 (VM自身をStratum 3として動作させ階層構造を安定化)
+refclock PHC /dev/ptp_hyperv poll 3 dpoll -2 offset 0 stratum 2
 ```
+
+#### オリジナルからの変更点一覧 (Ubuntu 24.04)
+
+| 行順 | 設定項目 (ディレクティブ) | オリジナル | 推奨設定 | 変更内容・理由 |
+| :---: | :--- | :--- | :--- | :--- |
+| 1 | `confdir /etc/chrony/conf.d` | 有効 | **`# ` コメントアウト** | 個別設定の競合を防ぎ、設定を一元管理するため。 |
+| 2 | `sourcedir /run/chrony-dhcp` | 有効 | **`# ` コメントアウト** | DHCPによる意図しないNTPサーバー自動追加を無効化。 |
+| 3 | `sourcedir /etc/chrony/sources.d` | 有効 | **`# ` コメントアウト** | 外部NTPソース設定ファイルの読み込みを防止。 |
+| 4 | `keyfile /etc/chrony/chrony.keys` | 有効 | **`# ` コメントアウト** | PHCローカル同期では認証キーを使用しないため不要。 |
+| 5 | `driftfile` | 有効 | そのまま維持 | クロック周波数の補正値保存に必須。 |
+| 6 | `ntsdumpdir /var/lib/chrony` | 有効 | **`# ` コメントアウト** | NTS (Network Time Security) を使用しないため不要。 |
+| 7 | `logdir` | 有効 | そのまま維持 | ログディレクトリ。 |
+| 8 | `maxupdateskew 100.0` | 有効 | そのまま維持 | 周波数推定の許容最大スキュー（Ubuntu標準）。 |
+| 9 | `rtcsync` | 有効 | そのまま維持 | カーネルからハードウェアクロック(RTC)への定期同期。 |
+| 10 | `makestep 1 3` | 有効 | そのまま維持 | 起動初期のみステップ補正、稼働中の時刻逆行を防止。 |
+| 11 | `leapsectz right/UTC` | 有効 | **`# ` コメントアウト** | Azureホスト側でうるう秒が吸収・平滑化されるため不要。 |
+| 12 | `refclock` | `... offset 0` | `... offset 0 stratum 2` | **`stratum 2` を追記**。ホストをStratum 2、VMをStratum 3として階層を明示。 |
+
+> [!TIP]
+> **ワンライナーでの一括適用手順 (Ubuntu 24.04):**  
+> 手動で `vi` 編集する代わりに、以下の `sed` コマンドでオリジナルから推奨設定へ一括変換することも可能です。
+> ```bash
+> # バックアップ取得
+> sudo cp -p /etc/chrony/chrony.conf /etc/chrony/chrony.conf.bak.$(date +%Y%m%d)
+> 
+> # 不要項目のコメントアウトと stratum 2 の追記
+> sudo sed -i \
+>   -e 's/^confdir \/etc\/chrony\/conf.d/# confdir \/etc\/chrony\/conf.d/' \
+>   -e 's/^sourcedir \/run\/chrony-dhcp/# sourcedir \/run\/chrony-dhcp/' \
+>   -e 's/^sourcedir \/etc\/chrony\/sources.d/# sourcedir \/etc\/chrony\/sources.d/' \
+>   -e 's/^keyfile \/etc\/chrony\/chrony.keys/# keyfile \/etc\/chrony\/chrony.keys/' \
+>   -e 's/^ntsdumpdir \/var\/lib\/chrony/# ntsdumpdir \/var\/lib\/chrony/' \
+>   -e 's/^leapsectz right\/UTC/# leapsectz right\/UTC/' \
+>   -e 's/^refclock PHC \/dev\/ptp_hyperv poll 3 dpoll -2 offset 0$/refclock PHC \/dev\/ptp_hyperv poll 3 dpoll -2 offset 0 stratum 2/' \
+>   /etc/chrony/chrony.conf
+> 
+> # 差分確認
+> diff -u /etc/chrony/chrony.conf.bak.$(date +%Y%m%d) /etc/chrony/chrony.conf
+> ```
+
+> [!NOTE]
+> **本VMを社内NTPサーバーとして運用し他サーバーへ時刻配信する場合:**  
+> 本VM自身をVNet内やオンプレミスの古いOSサーバー・ネットワーク機器等に対するNTPサーバーとして動作させる場合は、親ファイルで `confdir /etc/chrony/conf.d` のコメントアウトを解除し、`/etc/chrony/conf.d/custom.conf` 等に設定を配置します。詳細は [第8章](#8-オプション-自vmをvnet内のntpサーバーとして運用する場合の設定-古いos機器への時刻配信) を参照してください。
 
 ### 5.3 反映と有効化 (Ubuntu 24.04)
 
@@ -449,7 +538,163 @@ PHC0                       64  32   512     -0.001      0.010    +0ns    30ns
 
 ---
 
-## 8. まとめ
+## 8. (オプション) 自VMをVNet内のNTPサーバーとして運用する場合の設定 (古いOS・機器への時刻配信)
+
+### 8.1 アーキテクチャとユースケース
+
+Azure上のLinux VM自身がHyper-V PTP経由でAzureホストと同期するだけでなく、**「自VNet内やオンプレミスに残る古いOS（Linux旧バージョン、Windows Server旧版、ネットワーク機器等）に対して、高精度なNTPサーバーとして時刻を配信・中継したい」** というケースがあります。
+
+Hyper-V PTPデバイスはAzure仮想マシンの内部バス専用であるため、古いOSや別サーバーが直接参照することはできません。そこで、本VMを**信頼できる社内NTPサーバー（Stratum 3）**として仕立てることで、環境全体の時刻同期を集約できます。
+
+```mermaid
+flowchart TD
+    subgraph AzureHost["Azure基盤"]
+        PTP["Hyper-V PTP (/dev/ptp_hyperv)"]
+    end
+
+    subgraph NTPMaster["本VM (RHEL 9.x / Ubuntu 24.04)<br/>【NTPサーバー: Stratum 3】"]
+        ChronyMaster["chronyd (NTPマスター)<br/>PTP同期 ＋ クライアント許可 ＋ スミアリング"]
+    end
+
+    subgraph Clients["時刻配信対象のクライアント群"]
+        OldLinux["古いLinuxサーバー<br/>(CentOS 6/7, RHEL 6/7等)"]
+        OldWin["古いWindowsサーバー<br/>(Win2012/2016等)"]
+        NwApp["スイッチ・ファイアウォール・アプライアンス"]
+    end
+
+    PTP -->|"内部VMBus (ナノ秒)"| ChronyMaster
+    ChronyMaster -->|"NTP (UDP 123)<br/>うるう秒スミアリング配信"| OldLinux
+    ChronyMaster -->|"NTP (UDP 123)"| OldWin
+    ChronyMaster -->|"NTP (UDP 123)"| NwApp
+```
+
+---
+
+### 8.2 設定内容と各ディレクティブの技術的役割
+
+他サーバーに時刻を配信する場合、単なるクライアント設定に加えて以下のディレクティブが必要（または強く推奨）となります。
+
+```text
+# ==============================================================================
+# NTPサーバー機能および古いOS向けうるう秒スミアリング設定
+# ==============================================================================
+
+# [1] クライアントからのNTPアクセス許可 (★必須)
+# chronyはデフォルトで全クライアントのアクセスを遮断するため、許可サブネットを明記します
+allow 192.168.0.0/16
+allow 10.0.0.0/8
+
+# [2] ローカルクロックのフォールバック配信 (★強く推奨)
+# 万が一、Azureホストとの同期が一時的に失われた場合でも、自らの時計をStratum 10として
+# クライアントへ時刻を配り続け、古いOS側で「同期エラー」が発生するのを防ぎます
+local stratum 10
+
+# [3] クライアントアクセスログの無効化 (★推奨: パフォーマンス・リソース保護)
+# 多数のクライアントからの要求ログをメモリに保持しないことで、不要なメモリ消費を抑えます
+noclientlog
+
+# [4] 急激な時刻変動のログ記録 (★推奨: 監視用)
+# クロックが0.5秒以上調整された場合にsyslogへ警告を出力します
+logchange 0.5
+
+# [5] 古いOS向けうるう秒スミアリング (Leap Smearing) 設定 (★古いOS保護に極めて有用)
+# 古いLinuxカーネルやJava、データベースがうるう秒のステップ同期(時刻巻き戻し)で
+# クラッシュやハングを起こす「うるう秒バグ」を回避するため、時間を滑らかに微調整して配ります
+leapsecmode slew
+maxslewrate 1000
+smoothtime 400 0.001 leaponly
+```
+
+#### 各項目の必要性・判定詳細
+
+| 設定項目 | 判定 | 理由・役割 |
+| :--- | :---: | :--- |
+| **`allow <CIDR>`** | **★必須** | chronydはデフォルトで外部からのNTPリクエスト（UDP 123）を全て破棄します。これがないと、クライアントから問い合わせがあっても時刻を提供できません。 |
+| **`local stratum 10`** | **★強く推奨** | 通常、chronyは自らが上位と正常同期していないとクライアントへの応答を停止します。この設定により、万一ホストPTPとの通信が途切れても、孤立状態でクライアントへ時刻を提供し続けることができます。 |
+| **`noclientlog`** | **★強く推奨** | クライアント接続元のログをメモリ上に記録しません。多数のクライアントが接続するNTPサーバー運用では、メモリ枯渇やオーバーヘッドを防ぐために必須のベストプラクティスです。 |
+| **`logchange 0.5`** | **◯推奨** | 0.5秒以上の大きな時刻補正が発生したときにsyslogへ記録します。時刻の急変を監視・検知するのに役立ちます。 |
+| **うるう秒スミアリング<br>(`smoothtime` 等)** | **◎古いOSに極めて有用** | 古いLinux（カーネルのfutexバグ等）や古いDBMSは、うるう秒で「1秒巻き戻る（23:59:59 → 23:59:59）」と高負荷無限ループやトランザクション不整合を起こす危険があります。`smoothtime` を使うことで、クライアントには時計の逆行を起こさせず、徐々に時間を合わせて配ることができます。 |
+| **`stratumweight 0`** | △任意 (影響小) | 複数ソース選択時のStratum差による重み付けを無視する設定です。Hyper-V PTP単一ソース運用の場合は動作に影響しませんが、記述を残していても問題ありません。 |
+
+---
+
+### 8.3 OS別の設定反映手順
+
+#### Ubuntu 24.04 の場合
+別ファイル `/etc/chrony/conf.d/custom.conf` に設定を分離して管理するのが便利です。
+
+```bash
+# 1. 親設定ファイル (/etc/chrony/chrony.conf) で confdir のコメントアウトを解除
+sudo sed -i 's/^# confdir \/etc\/chrony\/conf.d/confdir \/etc\/chrony\/conf.d/' /etc/chrony/chrony.conf
+
+# 2. 追加設定ファイルを作成
+sudo tee /etc/chrony/conf.d/custom.conf << "EOF"
+# Allow NTP client access from local network
+allow 192.168.0.0/16
+allow 10.0.0.0/8
+
+# Serve time even if not synchronized to any upstream
+local stratum 10
+
+# Disable logging of client accesses
+noclientlog
+
+# Send a message to syslog if a clock adjustment is larger than 0.5 seconds
+logchange 0.5
+
+# 古いOS向けのうるう秒スミアリング設定
+leapsecmode slew
+maxslewrate 1000
+smoothtime 400 0.001 leaponly
+EOF
+
+# 3. 反映
+sudo systemctl restart chrony
+```
+
+#### RHEL 9.x の場合
+`/etc/chrony.conf` の末尾に直接追記するか、またはディレクトリ読み込みを有効化して配置します。
+
+```bash
+# /etc/chrony.conf の末尾に設定を追記
+sudo tee -a /etc/chrony.conf << "EOF"
+
+# ==============================================================================
+# NTP Server & Leap Smearing for Local Network Clients
+# ==============================================================================
+allow 192.168.0.0/16
+allow 10.0.0.0/8
+local stratum 10
+noclientlog
+logchange 0.5
+leapsecmode slew
+maxslewrate 1000
+smoothtime 400 0.001 leaponly
+EOF
+
+# 構文チェックと反映
+sudo chronyd -q -t 1
+sudo systemctl restart chronyd
+```
+
+---
+
+### 8.4 Azure NSG (ネットワークセキュリティグループ) の設定要件
+
+自VMをNTPサーバーとして動作させる場合、クライアントから自VMへの通信を通すため、AzureのNSGで以下の受信セキュリティ規則を追加する必要があります。
+
+| 項目 | 設定値 |
+| :--- | :--- |
+| **ソース (送信元)** | `192.168.0.0/16`, `10.0.0.0/8` (またはクライアントのサブネット) |
+| **送信元ポート範囲** | `*` |
+| **宛先** | `VirtualNetwork` (または本VMのプライベートIP) |
+| **宛先ポート範囲** | **`123`** |
+| **プロトコル** | **`UDP`** |
+| **アクション** | **`許可 (Allow)`** |
+
+---
+
+## 9. まとめ
 
 1. **オンプレNTP廃止後の標準**:
    Azureでは物理ホストが最高精度のStratum 1と同期しており、ハイパーバイザー経由の **`refclock PHC /dev/ptp_hyperv`** を使うことで、ネットワーク不要・最高精度の時刻同期が実現できます。
@@ -457,3 +702,5 @@ PHC0                       64  32   512     -0.001      0.010    +0ns    30ns
    `poll 3`（8秒間隔サンプリング）と `makestep 1.0 3`（稼働中スルー同期強制）により、**OSが数年間無停止で稼働しても、時刻逆行事故を起こさずマイクロ秒単位で常時同期**し続けます。
 3. **閉域網での完全自律**:
    インターネットへのアウトバウンド（UDP 123）開放が一切不要なため、セキュリティが厳しい金融・基盤系システムの完全プライベートサブネットにも最適です。
+4. **社内NTPサーバーとしての活用**:
+   PTPを参照できない古いOSや他サーバー群がある場合、本VMに `allow` や `smoothtime`（うるう秒スミアリング）を設定することで、**Azureホストの高精度時刻を安全に中継・配信する堅牢な社内NTPサーバー**として活用できます。
